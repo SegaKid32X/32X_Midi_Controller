@@ -180,6 +180,10 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
             mon_chans = mon_voices = 0;
         } else if (p1 == 1) {
             put6(mon_last);     /* (bytes 4-5: whatever follows; unused) */
+        } else if (p1 == 10) {
+            COMM16(C_P1) = rx_bytes;
+            COMM16(C_P2) = rx_errors;
+            COMM16(C_P3) = 0;
         } else if (p1 < 10) {
             int c = (p1 - 2) * 2;
             for (int k = 0; k < 3; k++) { b[k] = mon_ch[c][k]; b[3 + k] = mon_ch[c + 1][k]; }

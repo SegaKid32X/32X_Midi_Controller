@@ -101,7 +101,8 @@ static void poll_inputs(void)
 {
     /* the MIDI jack */
     while (UCSR1A & (1 << RXC1)) {
-        push(UDR1);
+        uint8_t st = UCSR1A, b = UDR1;      /* (the status first) */
+        push(st & ((1 << FE1) | (1 << DOR1)) ? 0xF9 : b);   /* 0xF9: a damaged byte */
         led_off = 1;
     }
     /* USB: 4-byte event packets (cable/code index, then up to 3 bytes) */

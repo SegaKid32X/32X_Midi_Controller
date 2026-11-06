@@ -829,6 +829,7 @@ static void draw_menu(void)
 static uint8_t mon_ch[16][3];           /* last note (0xFF none), velocity (0 let go), keys down */
 static uint8_t mon_last[4];             /* status, byte 1, byte 2, length */
 static int mon_timer;
+static uint16_t mon_bytes, mon_errors;
 
 static int monitor_fetch(void)          /* 1: something changed */
 {
@@ -842,7 +843,12 @@ static int monitor_fetch(void)          /* 1: something changed */
         for (int j = 0; j < 6; j++)
             ch[k * 2 + j / 3][j % 3] = (uint8_t)(j & 1 ? w[j >> 1] : w[j >> 1] >> 8);
     }
-    int changed = memcmp(ch, mon_ch, sizeof ch) || memcmp(last, mon_last, sizeof last);
+    md_cmd(CMD_MONITOR, 10, 0, 0);
+    uint16_t nb = md_p(C_P1), ne = md_p(C_P2);
+    int changed = memcmp(ch, mon_ch, sizeof ch) || memcmp(last, mon_last, sizeof last)
+                  || nb != mon_bytes || ne != mon_errors;
+    mon_bytes = nb;
+    mon_errors = ne;
     memcpy(mon_ch, ch, sizeof ch);
     memcpy(mon_last, last, sizeof last);
     return changed;
@@ -915,6 +921,14 @@ static void draw_monitor(void)
     const char *const *n = midi ? n_midi : link == LINK_STOCK ? n_stock : n_none;
     for (int i = 0; n[i]; i++) gfx_text(px, 20 + i * 10, n[i], i == 0 && !midi ? COL_HI : COL_TEXT);
     if (midi) {
+        o = put_str(t, "BYTES ");
+        o = fmt_num(o, mon_bytes);
+        *o = 0;
+        gfx_text(px, 156, t, COL_DIM);
+        o = put_str(t, "BAD BYTES ");
+        o = fmt_num(o, mon_errors);
+        *o = 0;
+        gfx_text(px, 166, t, mon_errors ? COL_ORANGE : COL_DIM);
         o = put_str(t, "MESSAGES ");
         o = fmt_num(o, mon_total);
         *o = 0;

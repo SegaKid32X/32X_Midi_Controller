@@ -71,6 +71,7 @@ extern midi_settings_t ms;
 void midi_init(void);
 void midi_byte(uint8_t b);
 void midi_reset_voices(void);
+extern uint16_t rx_bytes, rx_errors;   /* md_rx.c: for the monitor */
 extern int midi_quiet;          /* 1: leave these bytes out of the monitor */
 extern uint16_t mon_chans, mon_count;
 extern uint8_t mon_last[6], mon_ch[16][3];

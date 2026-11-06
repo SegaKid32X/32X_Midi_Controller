@@ -93,6 +93,9 @@ void rx_take(uint8_t v)
     PAD2_DATA = (v & 0x40) ? 0x20 : 0x00;
 }
 
+uint16_t rx_bytes, rx_errors;           /* for the monitor: bytes from the Teensy
+                                         * (not its keepalives), damaged ones */
+
 static void custom_nibble(uint8_t v)
 {
     quiet = 0;
@@ -101,7 +104,10 @@ static void custom_nibble(uint8_t v)
         have_hi = 1;
     } else if (have_hi) {
         have_hi = 0;
-        midi_byte((uint8_t)(hi_nib << 4 | (v & 15)));
+        uint8_t b = (uint8_t)(hi_nib << 4 | (v & 15));
+        if (b == 0xF9) rx_errors++;     /* (our firmware: the MIDI jack got a bad byte) */
+        else if (b != 0xFE) rx_bytes++;
+        midi_byte(b);
     }
 }
 

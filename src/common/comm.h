@@ -89,7 +89,10 @@
                              * byte 1, P2 = byte 2 << 8 | its length.
                              * P1 = 2-9: channels (P1-2)*2 and +1, 3 bytes each:
                              * last note (0xFF none), its velocity (0: let go),
-                             * keys down */
+                             * keys down.
+                             * P1 = 10: P1 = bytes from our Teensy firmware
+                             * (keepalives left out), P2 = damaged bytes it
+                             * reported (0xF9) */
 #define CMD_CRASH       31  /* (written by a crashing SH-2, see crt0.s) */
 
 #define BUF_NAME        0       /* 320 bytes: a path inside MIDI_PATCHES */
