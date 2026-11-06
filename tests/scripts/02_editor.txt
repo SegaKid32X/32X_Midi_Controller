@@ -1,0 +1,31 @@
+# The editor: open it, move, change values, the save panel, back.
+# pad6
+run 300
+press down 4
+run 40
+press a 4
+run 30
+shot editor
+press down 4
+run 6
+press a 4
+run 6
+press a 4
+run 20
+shot editor_mul_up
+press down 4
+run 6
+press down 4
+run 6
+press x 4
+run 20
+shot editor_tl_up10
+press start 4
+run 20
+shot save_panel
+press b 4
+run 20
+press y 4
+run 30
+shot back_to_library
+telem

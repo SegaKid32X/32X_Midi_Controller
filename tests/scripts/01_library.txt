@@ -1,0 +1,23 @@
+# The library: the built-in test patches, choosing one loads it, the target
+# channel, the controls panel.
+# pad6
+run 300
+shot library
+press down 4
+run 40
+shot library_second
+press down 4
+run 4
+press down 4
+run 40
+shot library_fourth
+press c 4
+run 20
+shot target_ch2
+press mode 4
+run 20
+shot text_help
+press a 4
+run 20
+shot help_closed
+telem

@@ -1,0 +1,23 @@
+# A stock GenMDM stream on port 2: a note on channel 1 must sound and stop,
+# and the screen must say the GenMDM was heard.
+run 300
+audiomark
+run 30
+quiet 200
+gm 0A4 22
+gm 0A0 69
+gm 028 F0
+audiomark
+run 40
+loud 300
+shot genmdm_note
+gm 028 00
+run 90
+audiomark
+run 30
+quiet 300
+# a change to channel 1's voice shows on the screen (operator 4 TL)
+gm 04C 50
+run 30
+shot genmdm_tl
+telem

@@ -1,0 +1,8 @@
+obj/
+rom/
+tests/out/
+tests/emu/*.so
+tests/emu/*.bin
+tests/harness
+__pycache__/
+*.pyc
