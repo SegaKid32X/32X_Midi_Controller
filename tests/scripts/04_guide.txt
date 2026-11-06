@@ -1,8 +1,11 @@
-# The guide: START opens it, the "try it" buttons tick and move on, LEFT/RIGHT
+# The guide: START, then A on the menu opens it, the "try it" buttons tick and move on, LEFT/RIGHT
 # turn pages, B leaves.
 # pad6
 run 300
 press start 4
+run 20
+shot menu
+press a 4
 run 20
 shot guide_welcome
 press right 4

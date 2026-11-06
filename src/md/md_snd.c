@@ -33,6 +33,20 @@ void ym_write(int part, uint8_t reg, uint8_t val)
     }
 }
 
+void ym_chip(int part, uint8_t reg, uint8_t val)
+{
+    ym_wait();
+    if (part) {
+        YM_A1 = reg;
+        ym_wait();
+        YM_D1 = val;
+    } else {
+        YM_A0 = reg;
+        ym_wait();
+        YM_D0 = val;
+    }
+}
+
 void psg_write(uint8_t b)
 {
     PSG_PORT = b;
@@ -53,6 +67,11 @@ void psg_write(uint8_t b)
         p[2 * ch] = (uint8_t)(t >> 8);
         p[2 * ch + 1] = (uint8_t)t;
     }
+}
+
+void act_bump(void)
+{
+    COMM16(C_ACT) = ++act_count;
 }
 
 void snd_silence(void)

@@ -29,7 +29,7 @@ MDOBJC := $(MDPREFIX)objcopy
 HOSTCC ?= cc
 
 MDCFLAGS = -m68000 -O2 -fomit-frame-pointer -ffreestanding -nostdlib -Wall -Wextra \
-           -Wno-unused-parameter -Isrc/common -Isrc/include $(EXTRA_CFLAGS)
+           -Wno-unused-parameter -Isrc/common -Isrc/include -I$(OBJ) $(EXTRA_CFLAGS)
 SHFLAGS := -c -std=gnu11 -m2 -mb -O2 -fomit-frame-pointer -ffreestanding \
            -ffunction-sections -fdata-sections -fno-common \
            -Wall -Wextra -Wno-unused-parameter -D__32X__ \
@@ -53,7 +53,9 @@ $(OBJ) $(OBJ)/sh $(OBJ)/md $(OBJ)/host rom:
 # ---- 68000 program ----
 $(OBJ)/md_crt.o: src/md/md_crt.s | $(OBJ)
 	$(MDAS) -m68000 --register-prefix-optional $< -o $@
-$(OBJ)/md/%.o: src/md/%.c src/md/md.h src/common/comm.h | $(OBJ)/md
+$(OBJ)/midi_tables.h: tools/gen_tables.py | $(OBJ)
+	python3 tools/gen_tables.py $@
+$(OBJ)/md/%.o: src/md/%.c src/md/md.h src/common/comm.h $(OBJ)/midi_tables.h | $(OBJ)/md
 	$(MDCC) $(MDCFLAGS) -c $< -o $@
 $(OBJ)/md.bin: $(MD_OBJS) src/md/md.ld
 	$(MDCC) -m68000 -nostdlib -T src/md/md.ld $(MD_OBJS) -lgcc -o $(OBJ)/md.elf -Wl,-Map=$(OBJ)/md.map
@@ -96,8 +98,16 @@ test-rom: $(OBJ)/$(TARGET).raw $(OBJ)/testpatches/stamp | rom
 $(OBJ)/host/test_patch: tests/host/test_patch.c src/common/patch.c src/common/patch.h | $(OBJ)/host
 	$(HOSTCC) -O1 -g -std=c11 -Wall -Wextra -fsanitize=address,undefined -Isrc/common \
 	    -o $@ tests/host/test_patch.c src/common/patch.c
-host-test: $(OBJ)/host/test_patch
+$(OBJ)/host/test_midi: tests/host/test_midi.c src/md/md_midi.c src/md/md.h $(OBJ)/midi_tables.h | $(OBJ)/host
+	$(HOSTCC) -O1 -g -std=gnu11 -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined \
+	    -Isrc/md -Isrc/common -I$(OBJ) -o $@ tests/host/test_midi.c src/md/md_midi.c
+$(OBJ)/host/test_link: tests/host/test_link.c tests/host/host_md.h src/md/md_rx.c src/md/md.h | $(OBJ)/host
+	$(HOSTCC) -O1 -g -std=gnu11 -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined \
+	    -DMD_HOST -Itests/host -Isrc/md -Isrc/common -o $@ tests/host/test_link.c src/md/md_rx.c
+host-test: $(OBJ)/host/test_patch $(OBJ)/host/test_midi $(OBJ)/host/test_link
 	$(OBJ)/host/test_patch
+	$(OBJ)/host/test_midi
+	$(OBJ)/host/test_link
 
 tests/harness: tests/harness.c
 	$(HOSTCC) -O2 -std=c11 -Wall -o $@ $< -ldl -lm

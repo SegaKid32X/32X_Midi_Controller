@@ -145,7 +145,21 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
         return (unsigned)file_delete();
     case CMD_SILENCE:
         snd_silence();
+        midi_reset_voices();
         return 0;
+    case CMD_MIDI:              /* MIDI bytes from the 32X (the preview note) */
+        for (int k = 0; k < (p1 >> 8) && k < 3; k++)
+            midi_byte((uint8_t)(k == 0 ? p1 : k == 1 ? p2 >> 8 : p2));
+        return 0;
+    case CMD_SETTING: {
+        uint8_t *s = (uint8_t *)&ms;
+        if (p1 >= SET_COUNT) return ERR_RANGE;
+        if (p2 != 0xFFFF) {
+            if (p1 == SET_MODE || p1 == SET_POLY_CH) midi_reset_voices();
+            s[p1] = (uint8_t)p2;
+        }
+        return s[p1];
+    }
     }
     return ERR_RANGE;
 }
@@ -164,6 +178,9 @@ void md_main(int boot_err)
     MARS16(0x04) = 0;           /* cartridge bank 0 in the 0x900000 window */
     MARS8(0x07) = 0;            /* RV = 0: the SH-2s may read the cartridge */
     snd_init();
+    if (VDP_CTRL & 1)           /* a PAL console: PAL tuning */
+        ms.region = 1;
+    midi_init();
     rx_init();
 
     md_flags = 0;
@@ -200,6 +217,7 @@ void md_main(int boot_err)
             if (!!(md_flags & FL_PAD3) != !pad6)
                 set_flag(FL_PAD3, !pad6);
             vblanks++;
+            rx_frame();
             /* test telemetry (tests/harness.c reads work RAM 0xFFFF00) */
             volatile uint16_t *t = (volatile uint16_t *)0xFFFF00;
             t[0] = 0x5354;

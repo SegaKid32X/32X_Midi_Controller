@@ -12,6 +12,9 @@
 #include <stdint.h>
 #include "comm.h"
 
+#ifdef MD_HOST                  /* the host tests (tests/host/test_link.c) */
+#include "host_md.h"
+#else
 #define VDP_DATA    (*(volatile uint16_t *)0xC00000)
 #define VDP_CTRL    (*(volatile uint16_t *)0xC00004)
 #define VDP_CTRL32  (*(volatile uint32_t *)0xC00004)
@@ -32,6 +35,9 @@
 #define MARS16(o)   (*(volatile uint16_t *)(0xA15100 + (o)))
 #define COMM16(o)   (*(volatile uint16_t *)(0xA15120 + (o)))
 #define COMM32(o)   (*(volatile uint32_t *)(0xA15120 + (o)))
+#define IRQ_OFF()   __asm__ volatile ("move.w #0x2700,%%sr" ::: "memory")
+#define IRQ_ON()    __asm__ volatile ("move.w #0x2100,%%sr" ::: "memory")
+#endif
 
 /* md_main.c */
 extern uint16_t md_flags;
@@ -42,15 +48,36 @@ void md_fatal(int vector);
 extern uint8_t shadow[SH_PSG + 16];
 extern volatile uint16_t act_count;
 void snd_init(void);
-void ym_write(int part, uint8_t reg, uint8_t val);
+void ym_write(int part, uint8_t reg, uint8_t val);      /* the chip and the shadow */
+void ym_chip(int part, uint8_t reg, uint8_t val);       /* the chip only */
 void psg_write(uint8_t b);
 void snd_silence(void);
+void act_bump(void);            /* tell the screen the sound changed */
+
+/* md_midi.c: the MIDI engine (with our Teensy firmware) */
+#define MODE_GENMDM 0
+#define MODE_POLY   1
+typedef struct {
+    uint8_t mode;               /* MODE_GENMDM / MODE_POLY */
+    uint8_t poly_ch;            /* POLY: the MIDI channel (0-15) */
+    uint8_t region;             /* tuning: 0 NTSC, 1 PAL */
+    uint8_t velocity;           /* 1: velocity sets the loudness */
+    uint8_t spread;             /* POLY: each note left, right or both */
+    uint8_t reserved;
+} midi_settings_t;
+extern midi_settings_t ms;
+void midi_init(void);
+void midi_byte(uint8_t b);
+void midi_reset_voices(void);
 
 /* md_rx.c: port 2 (the GenMDM interface) */
 extern uint8_t rx_ring[256];
 extern volatile uint8_t rx_head;
 void rx_init(void);
 void rx_poll(void);             /* call as often as possible */
+void rx_frame(void);            /* once a frame */
+extern volatile uint8_t rx_custom;
+void rx_take(uint8_t v);
 
 /* md_files.c: the patch list and file transfers */
 #define MAX_FILES   999

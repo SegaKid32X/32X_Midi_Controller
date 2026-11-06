@@ -59,6 +59,16 @@
                              * replace "/" + name -> 0 or error */
 #define CMD_DELETE      11  /* delete "/" + the name at BUF_NAME */
 #define CMD_SILENCE     12  /* all notes off, PSG quiet */
+#define CMD_SETTING     13  /* P1 = SET_*, P2 = the value (0xFFFF: only read it)
+                             * -> the value (the MIDI engine's settings) */
+#define SET_MODE        0   /* 0 GenMDM (MIDI ch 1-6 = FM 1-6), 1 POLY */
+#define SET_POLY_CH     1   /* POLY: its MIDI channel, 0-15 */
+#define SET_REGION      2   /* tuning: 0 NTSC, 1 PAL */
+#define SET_VELOCITY    3   /* 1: velocity sets the loudness */
+#define SET_SPREAD      4   /* POLY: stereo spread */
+#define SET_COUNT       5
+#define CMD_MIDI        14  /* P1 = count << 8 | byte 1, P2 = byte 2 << 8 | byte 3:
+                             * MIDI bytes into the engine (count 1-3) */
 #define CMD_CRASH       31  /* (written by a crashing SH-2, see crt0.s) */
 
 #define BUF_NAME        0       /* 64 bytes */

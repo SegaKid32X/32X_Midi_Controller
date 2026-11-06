@@ -6,3 +6,4 @@ tests/emu/*.bin
 tests/harness
 __pycache__/
 *.pyc
+teensy/*.elf

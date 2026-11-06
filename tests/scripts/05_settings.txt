@@ -1,0 +1,40 @@
+# The preview note (hold X: a sound, let go: quiet), the settings (POLY).
+# pad6
+run 300
+press down 4
+run 40
+audiomark
+run 20
+quiet 200
+hold x
+run 10
+audiomark
+run 30
+loud 300
+shot preview_note
+release x
+run 90
+audiomark
+run 30
+quiet 400
+press start 4
+run 10
+press down 4
+run 10
+press a 4
+run 20
+shot text_settings
+press right 4
+run 20
+shot text_settings_poly
+press down 4
+run 10
+press down 4
+run 10
+press down 4
+run 10
+shot text_settings_velocity
+press b 4
+run 20
+shot after_settings
+telem

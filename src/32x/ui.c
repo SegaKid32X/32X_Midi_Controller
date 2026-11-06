@@ -18,7 +18,7 @@
 #include "guide.h"
 
 enum { SCR_LIBRARY, SCR_EDITOR };
-enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE };
+enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS };
 
 #define ALL_CH      6
 #define LIST_ROWS   19
@@ -30,7 +30,11 @@ static int load_timer = -1;
 static int chan_file[6] = { -1, -1, -1, -1, -1, -1 };   /* the file each channel came from */
 static int chan_edited[6];
 static fm_patch voice;                  /* the voice shown (the editor's channel) */
-static int ed_row, ed_col, save_choice;
+static int ed_row, ed_col, save_choice, menu_choice, set_row;
+static uint8_t settings[SET_COUNT];
+static int preview_note = -1;           /* the note X is playing, or -1 */
+static void menu_input(uint16_t p);
+static void settings_input(uint16_t p);
 static char message[60];
 static int message_timer;
 static int dirty = 1;
@@ -63,6 +67,8 @@ static uint16_t held_prev;
 static int repeat_timer;
 
 /* Buttons pressed this frame, plus auto-repeat for the D-pad, A and B */
+static uint16_t held_now;
+
 static uint16_t read_buttons(void)
 {
     uint16_t now = hw_pad();
@@ -77,6 +83,7 @@ static uint16_t read_buttons(void)
         repeat_timer = 18;
     }
     held_prev = now;
+    held_now = now;
     return pressed;
 }
 
@@ -242,7 +249,7 @@ static void draw_library(void)
         gfx_num(px + 12, 104 + i * 20, i + 1, COL_DIM);
         draw_envelope(px + 22, 100 + i * 20, 92, 17, &voice.op[i], COL_ORANGE);
     }
-    footer(lib_count ? "UP/DN PATCH  C CHAN  A EDIT  START GUIDE" : "A: LOOK AGAIN   START: GUIDE");
+    footer(lib_count ? "UP/DN PATCH  C CHAN  A EDIT  X HEAR  START MENU" : "A: LOOK AGAIN   START: MENU");
 }
 
 static void library_input(uint16_t p)
@@ -266,8 +273,8 @@ static void library_input(uint16_t p)
         dirty = 1;
     }
     if (p & PAD_START) {
-        guide_open();
-        overlay = OV_GUIDE;
+        overlay = OV_MENU;
+        menu_choice = 0;
         dirty = 1;
         return;
     }
@@ -500,7 +507,8 @@ static void draw_help(void)
         "C           TARGET CHANNEL 1-6 / ALL",
         "A           EDIT THE TARGET'S VOICE",
         "Y           DELETE THE PATCH FILE",
-        "START       THE GUIDE (HOW IT ALL WORKS)",
+        "X           HEAR IT (MIDDLE C, HOLD)",
+        "START       MENU: GUIDE, SETTINGS",
         "",
         "EDITOR",
         "D-PAD       CHOOSE A SETTING",
@@ -516,7 +524,7 @@ static void draw_help(void)
     int n = (int)(sizeof lines / sizeof lines[0]);
     panel(20, 14, 280, n * CHAR_H + 10);
     for (int i = 0; i < n; i++) {
-        int head = i == 0 || i == 2 || i == 10 || i == n - 1;
+        int head = i == 0 || i == 2 || i == 11 || i == n - 1;
         gfx_text(30, 20 + i * CHAR_H, lines[i], head ? COL_HI : COL_TEXT);
     }
 }
@@ -588,6 +596,8 @@ static void do_save(void)
 static void overlay_input(uint16_t p)
 {
     switch (overlay) {
+    case OV_MENU: menu_input(p); break;
+    case OV_SETTINGS: settings_input(p); break;
     case OV_GUIDE: {
         int redraw = 0;
         if (!guide_input(p, &redraw)) { overlay = OV_NONE; dirty = 1; }
@@ -626,6 +636,117 @@ static void overlay_input(uint16_t p)
     }
 }
 
+/* ------------------------------------------------------------ menu, settings */
+
+static const char *const menu_items[3] = { "THE GUIDE: HOW IT ALL WORKS", "SETTINGS", "LOOK FOR PATCHES AGAIN" };
+
+static void draw_menu(void)
+{
+    panel(60, 70, 200, 62);
+    gfx_text(70, 77, "MENU", COL_HI);
+    for (int i = 0; i < 3; i++) {
+        int y = 91 + i * 11;
+        if (i == menu_choice) gfx_rect(66, y - 2, 188, 11, COL_CURSOR);
+        gfx_text(70, y, menu_items[i], i == menu_choice ? COL_HI : COL_TEXT);
+    }
+    gfx_text(70, 124, "A: CHOOSE   B: BACK", COL_DIM);
+}
+
+static const char *const set_names[SET_COUNT] = { "MODE", "POLY MIDI CHANNEL", "TUNING", "VELOCITY", "STEREO SPREAD" };
+static const uint8_t set_max[SET_COUNT] = { 1, 15, 1, 1, 1 };
+
+static void settings_fetch(void)
+{
+    for (int i = 0; i < SET_COUNT; i++)
+        settings[i] = (uint8_t)md_cmd(CMD_SETTING, (uint16_t)i, 0xFFFF, 0);
+}
+
+static void draw_settings(void)
+{
+    char t[24];
+    panel(16, 30, 288, 160);
+    gfx_text(26, 37, "SETTINGS", COL_HI);
+    for (int i = 0; i < SET_COUNT; i++) {
+        int y = 54 + i * 13;
+        int v = settings[i];
+        if (i == set_row) gfx_rect(22, y - 3, 276, 13, COL_CURSOR);
+        gfx_text(28, y, set_names[i], COL_TEXT);
+        switch (i) {
+        case SET_MODE: strcpy(t, v ? "POLY (6 VOICES)" : "GENMDM (CH 1-6)"); break;
+        case SET_POLY_CH: *fmt_num(t, v + 1) = 0; break;
+        case SET_REGION: strcpy(t, v ? "PAL" : "NTSC"); break;
+        default: strcpy(t, v ? "ON" : "OFF"); break;
+        }
+        gfx_text(190, y, t, i == set_row ? COL_HI : COL_TEXT);
+    }
+    static const char *const help[SET_COUNT] = {
+        "GENMDM: MIDI CH 1-6 PLAY FM 1-6.  POLY: ONE",
+        "THE CHANNEL YOUR KEYBOARD SENDS ON (POLY)",
+        "MATCH YOUR CONSOLE SO NOTES ARE IN TUNE",
+        "HARDER KEYS PLAY LOUDER",
+        "EACH POLY NOTE LEFT, RIGHT OR CENTRE",
+    };
+    gfx_text(28, 128, help[set_row], COL_DIM);
+    if (set_row == SET_MODE)
+        gfx_text(28, 139, "CHANNEL PLAYS ALL SIX FM VOICES", COL_DIM);
+    if ((hw_flags() & FL_LINK) != LINK_MIDI) {
+        gfx_text(28, 156, "THESE NEED THE NEW TEENSY FIRMWARE:", COL_ORANGE);
+        gfx_text(28, 166, "THE STOCK ONE DECIDES ALL THIS ITSELF", COL_ORANGE);
+    }
+    gfx_text(28, 178, "UP/DOWN CHOOSE  LEFT/RIGHT CHANGE  B BACK", COL_DIM);
+}
+
+static void menu_input(uint16_t p)
+{
+    if (p & PAD_UP) menu_choice = (menu_choice + 2) % 3;
+    if (p & PAD_DOWN) menu_choice = (menu_choice + 1) % 3;
+    if (p & (PAD_UP | PAD_DOWN)) dirty = 1;
+    if (p & (PAD_A | PAD_START)) {
+        overlay = OV_NONE;
+        if (menu_choice == 0) { guide_open(); overlay = OV_GUIDE; }
+        else if (menu_choice == 1) { settings_fetch(); set_row = 0; overlay = OV_SETTINGS; }
+        else ui_rescan();
+        dirty = 1;
+    } else if (p & PAD_B) {
+        overlay = OV_NONE;
+        dirty = 1;
+    }
+}
+
+static void settings_input(uint16_t p)
+{
+    if (p & PAD_UP) set_row = (set_row + SET_COUNT - 1) % SET_COUNT;
+    if (p & PAD_DOWN) set_row = (set_row + 1) % SET_COUNT;
+    int d = (p & (PAD_RIGHT | PAD_A)) ? 1 : (p & PAD_LEFT) ? -1 : 0;
+    if (d) {
+        int v = settings[set_row] + d;
+        if (v < 0) v = set_max[set_row];
+        if (v > set_max[set_row]) v = 0;
+        settings[set_row] = (uint8_t)md_cmd(CMD_SETTING, (uint16_t)set_row, (uint16_t)v, 0);
+        if (set_row == SET_MODE && v == 1) target = ALL_CH;     /* POLY: patches go to all six */
+    }
+    if (p & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_A)) dirty = 1;
+    if (p & (PAD_B | PAD_START)) {
+        overlay = OV_NONE;
+        dirty = 1;
+    }
+}
+
+/* X on the home screen: middle C while it is held, on the target's channel */
+static void preview(void)
+{
+    if (screen != SCR_LIBRARY || overlay != OV_NONE) return;
+    int down = (held_now & PAD_X) != 0;
+    if (down && preview_note < 0) {
+        int mch = settings[SET_MODE] ? settings[SET_POLY_CH] : (target == ALL_CH ? 0 : target);
+        preview_note = 60 | mch << 8;
+        md_cmd(CMD_MIDI, (uint16_t)(3 << 8 | (0x90 | mch)), (uint16_t)(60 << 8 | 110), 0);
+    } else if (!down && preview_note >= 0) {
+        md_cmd(CMD_MIDI, (uint16_t)(3 << 8 | (0x80 | preview_note >> 8)), (uint16_t)(60 << 8), 0);
+        preview_note = -1;
+    }
+}
+
 /* ------------------------------------------------------------ the loop */
 
 void ui_draw(void)
@@ -641,6 +762,8 @@ void ui_draw(void)
     if (overlay == OV_HELP) draw_help();
     else if (overlay == OV_DELETE) draw_delete();
     else if (overlay == OV_SAVE) draw_save();
+    else if (overlay == OV_MENU) draw_menu();
+    else if (overlay == OV_SETTINGS) draw_settings();
     gfx_present();
     dirty = 0;
 }
@@ -666,6 +789,7 @@ void ui_start(void)
     ui_rescan();
     shadow_refresh();
     voice_read(0, &voice);
+    settings_fetch();
     last_act = hw_activity();
 }
 
@@ -683,6 +807,7 @@ void ui_frame(void)
     } else {
         editor_input(p);
     }
+    preview();
     if (load_timer > 0 && --load_timer == 0) {
         load_timer = -1;
         if (lib_count) load_cursor();

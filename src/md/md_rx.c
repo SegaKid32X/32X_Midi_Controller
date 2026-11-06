@@ -28,12 +28,23 @@
 
 uint8_t rx_ring[256];
 volatile uint8_t rx_head;
+volatile uint8_t rx_custom;             /* 1: our firmware (the interrupt calls rx_take) */
 static uint8_t rx_tail;
 static uint8_t last_port;               /* the port at the last direct read */
-static uint8_t last;                    /* the last nibble decoded */
+static uint8_t last;                    /* the last stock nibble decoded */
 static uint8_t d_lo, d_hi, a_lo;
 static uint8_t part;
 static int seen;
+static uint8_t hist[4];                 /* the last four stock nibbles (the hello) */
+static uint8_t expect;                  /* ours: the strobe level of the next nibble */
+static uint8_t hi_nib, have_hi;
+static uint16_t quiet;                  /* ours: frames without a nibble */
+
+static void set_link(uint16_t link)
+{
+    md_flags = (uint16_t)((md_flags & ~FL_LINK) | link);
+    COMM16(C_FLAGS) = md_flags;
+}
 
 void rx_init(void)
 {
@@ -42,8 +53,59 @@ void rx_init(void)
     last_port = PAD2_DATA;              /* whatever is there now is old */
     last = 0xFF;
     rx_tail = rx_head;
+    rx_custom = 0;
     seen = 0;
 }
+
+/* ---- our firmware: a MIDI byte as two nibbles (bit 4 set: the high one).
+ * Each nibble turns the strobe (TH) over; we answer on TR with the level we
+ * took, and the Teensy waits for that before the next. ---- */
+
+static void start_custom(void)
+{
+    expect = 0x40;                      /* the Teensy left TH low: the first nibble raises it */
+    have_hi = 0;
+    quiet = 0;
+    PAD2_DATA = 0x00;                   /* TR low: "heard you" */
+    PAD2_CTRL = 0xA0;                   /* TR an output, TH's interrupt on */
+    rx_custom = 1;
+    midi_init();
+    set_link(LINK_MIDI);
+}
+
+static void stop_custom(void)
+{
+    rx_custom = 0;
+    PAD2_CTRL = 0x80;                   /* let go of TR */
+    midi_reset_voices();
+    last = 0xFF;
+    set_link(LINK_NONE);
+    seen = 0;
+}
+
+/* from the interrupt (md_crt.s) and from rx_poll with interrupts off */
+void rx_take(uint8_t v)
+{
+    if ((v & 0x40) != expect)
+        return;
+    rx_ring[rx_head++] = v;
+    expect ^= 0x40;
+    PAD2_DATA = (v & 0x40) ? 0x20 : 0x00;
+}
+
+static void custom_nibble(uint8_t v)
+{
+    quiet = 0;
+    if (v & 0x10) {
+        hi_nib = v & 15;
+        have_hi = 1;
+    } else if (have_hi) {
+        have_hi = 0;
+        midi_byte((uint8_t)(hi_nib << 4 | (v & 15)));
+    }
+}
+
+/* ---- the stock GenMDM stream ---- */
 
 static void nibble(uint8_t v)
 {
@@ -51,6 +113,11 @@ static void nibble(uint8_t v)
     if (v == last)
         return;
     last = v;
+    hist[0] = hist[1]; hist[1] = hist[2]; hist[2] = hist[3]; hist[3] = v;
+    if (hist[0] == 0x69 && hist[1] == 0x7F && hist[2] == 0x6D && hist[3] == 0x7F) {
+        start_custom();                 /* our firmware's hello */
+        return;
+    }
     uint8_t nib = v & 15;
     switch ((v >> 4) & 3) {
     case 0: d_lo = nib; break;
@@ -73,8 +140,7 @@ static void nibble(uint8_t v)
         COMM16(C_ACT) = ++act_count;
         if (!seen) {
             seen = 1;
-            md_flags = (uint16_t)((md_flags & ~FL_LINK) | LINK_STOCK);
-            COMM16(C_FLAGS) = md_flags;
+            set_link(LINK_STOCK);
         }
         break;
     }
@@ -82,7 +148,15 @@ static void nibble(uint8_t v)
 
 void rx_poll(void)
 {
-    while (rx_tail != rx_head)
+    if (rx_custom) {
+        IRQ_OFF();
+        rx_take(PAD2_DATA);
+        IRQ_ON();
+        while (rx_tail != rx_head)
+            custom_nibble(rx_ring[rx_tail++]);
+        return;
+    }
+    while (rx_tail != rx_head && !rx_custom)
         nibble(rx_ring[rx_tail++]);
     uint8_t v = PAD2_DATA;
     if (v != last_port) {
@@ -90,4 +164,11 @@ void rx_poll(void)
         if (v & 0x40)
             nibble(v);
     }
+}
+
+/* once a frame */
+void rx_frame(void)
+{
+    if (rx_custom && ++quiet > 120)     /* 2 s without a byte: the Teensy is gone */
+        stop_custom();
 }

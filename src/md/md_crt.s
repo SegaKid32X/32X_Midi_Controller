@@ -39,11 +39,25 @@ exception:
 ext_irq:
         move.l  a0,-(sp)
         move.l  d0,-(sp)
-        moveq   #0,d0
+        tst.b   rx_custom
+        bne.b   1f
+        moveq   #0,d0                   | the stock stream: just catch it
         move.b  rx_head,d0
         lea     rx_ring,a0
         move.b  0xA10005,0(a0,d0.w)
         addq.b  #1,rx_head
+        move.l  (sp)+,d0
+        move.l  (sp)+,a0
+        rte
+1:      move.l  d1,-(sp)                | ours: rx_take(port) answers on TR
+        move.l  a1,-(sp)
+        moveq   #0,d0
+        move.b  0xA10005,d0
+        move.l  d0,-(sp)
+        jsr     rx_take
+        addq.l  #4,sp
+        move.l  (sp)+,a1
+        move.l  (sp)+,d1
         move.l  (sp)+,d0
         move.l  (sp)+,a0
         rte
