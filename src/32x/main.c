@@ -5,6 +5,7 @@
  */
 #include "hw.h"
 #include "ui.h"
+#include "synth.h"
 
 const char midi32x_marker[] __attribute__((used)) = "32X MIDI CONTROLLER";
 
@@ -12,9 +13,12 @@ int main(void)
 {
     (void)*(const volatile char *)midi32x_marker;      /* keep it linked */
     hw_init();
+    synth_start();
+    poll_hook = synth_poll;
     ui_start();
     for (;;) {
-        hw_wait_vblank();
+        while (hw_in_vblank()) synth_poll();        /* (the vblank's start: a frame) */
+        while (!hw_in_vblank()) synth_poll();
         ui_frame();
     }
     return 0;

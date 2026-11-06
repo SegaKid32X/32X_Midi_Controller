@@ -68,6 +68,14 @@
 #define SET_VELOCITY    3   /* 1: velocity sets the loudness */
 #define SET_SPREAD      4   /* POLY: stereo spread */
 #define SET_COUNT       5
+#define CMD_EVENTS      16  /* P1 = the first event wanted: up to two 3-byte MIDI
+                             * messages for the 32X's voices into P1..P3 -> count.
+                             * C_FLAGS' high byte: the next event's number */
+#define CMD_DRUMS       17  /* load the kit at BUF_NAME ("" = MIDI_DRUMS) -> count */
+#define CMD_DRUM        18  /* P1 = sample, P2 = 0xFFFF: P1 note << 8 | cartridge
+                             * address bits 16-23, P2 its low 16 bits, P3 the
+                             * size in 64-byte units;
+                             * else 6 name bytes from offset P2 -> the name's length */
 #define CMD_CD          15  /* the folder to list: BUF_NAME, a path inside
                              * MIDI_PATCHES ("" = MIDI_PATCHES itself) */
 #define CMD_MIDI        14  /* P1 = count << 8 | byte 1, P2 = byte 2 << 8 | byte 3:

@@ -53,3 +53,36 @@ def y12(alg, fb, seed, name):
 (out / "Organ_01.dmp").write_bytes(dmp(7, 0, 4))
 (out / "Strings [warm].dmp").write_bytes(dmp(2, 3, 5))
 (out / "Lead Saw.y12").write_bytes(y12(6, 4, 6, "Lead Saw"))
+
+
+# drum samples (made up here): WAVs in three formats
+import math
+import random
+import wave
+
+drums = out.parent / "testdrums"
+drums.mkdir(parents=True, exist_ok=True)
+
+
+def wav(path, rate, width, chans, samples):
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(chans)
+        w.setsampwidth(width)
+        w.setframerate(rate)
+        frames = bytearray()
+        for s in samples:
+            for _ in range(chans):
+                if width == 2:
+                    frames += struct.pack("<h", int(max(-1, min(1, s)) * 30000))
+                else:
+                    frames.append(int(128 + max(-1, min(1, s)) * 120))
+        w.writeframes(bytes(frames))
+
+
+rnd = random.Random(1)
+kick = [math.sin(2 * math.pi * (55 + 120 * math.exp(-i / 600)) * i / 22050) * math.exp(-i / 3000) for i in range(6000)]
+snare = [(rnd.random() * 2 - 1) * math.exp(-i / 1500) for i in range(5000)]
+hat = [(rnd.random() * 2 - 1) * math.exp(-i / 800) for i in range(4000)]
+wav(drums / "36 Kick.wav", 22050, 2, 1, kick)
+wav(drums / "Snare tight.wav", 22050, 1, 1, snare)
+wav(drums / "closed hat.wav", 44100, 2, 2, hat)

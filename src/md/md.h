@@ -53,6 +53,7 @@ void ym_chip(int part, uint8_t reg, uint8_t val);       /* the chip only */
 void psg_write(uint8_t b);
 void snd_silence(void);
 void act_bump(void);            /* tell the screen the sound changed */
+void flags_publish(void);       /* md_flags -> C_FLAGS */
 
 /* md_midi.c: the MIDI engine (with our Teensy firmware) */
 #define MODE_GENMDM 0
@@ -69,6 +70,13 @@ extern midi_settings_t ms;
 void midi_init(void);
 void midi_byte(uint8_t b);
 void midi_reset_voices(void);
+extern uint8_t ev_ring[256][3];
+
+/* md_drums.c: the drum kit (WAVs in MIDI_DRUMS, into cartridge memory) */
+#define MAX_DRUMS   64
+int  drums_scan(void);          /* the kit at BUF_NAME -> count */
+unsigned drum_info(int i, int off);
+int  ed_load_to_cart(const char *path, uint32_t cart_addr, uint32_t max, uint32_t *len);
 
 /* md_rx.c: port 2 (the GenMDM interface) */
 extern uint8_t rx_ring[256];

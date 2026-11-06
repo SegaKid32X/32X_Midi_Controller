@@ -14,6 +14,8 @@ void ym_write(int part, uint8_t reg, uint8_t val) { chip[part][reg] = val; shado
 void ym_chip(int part, uint8_t reg, uint8_t val) { chip[part][reg] = val; }
 void psg_write(uint8_t b) { if (psg_n < 64) psg_last[psg_n++] = b; }
 void act_bump(void) { act_count++; }
+uint16_t md_flags;
+void flags_publish(void) {}
 
 static int fails;
 #define CHECK(c, ...) do { if (!(c)) { printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
@@ -107,6 +109,17 @@ int main(void)
     CHECK(chip[0][0x28] == (0xF0 | code), "held by the pedal");
     send(0xB0, 64, 0);
     CHECK(chip[0][0x28] == code, "released with the pedal");
+
+    /* MIDI channels 11-16 go to the 32X's voices: queued, not played here */
+    ms.mode = MODE_GENMDM;
+    uint8_t h0 = (uint8_t)(md_flags >> 8);
+    chip[0][0x28] = 0x55;
+    send(0x9F, 36, 100);
+    send(0xBA, 7, 90);
+    CHECK((uint8_t)(md_flags >> 8) == (uint8_t)(h0 + 2), "two events queued");
+    CHECK(ev_ring[h0][0] == 0x9F && ev_ring[h0][1] == 36 && ev_ring[h0][2] == 100, "the note");
+    CHECK(ev_ring[(uint8_t)(h0 + 1)][0] == 0xBA && ev_ring[(uint8_t)(h0 + 1)][2] == 90, "the CC");
+    CHECK(chip[0][0x28] == 0x55, "nothing on the YM2612");
 
     printf(fails ? "test_midi: %d failure(s)\n" : "ok   MIDI engine: notes, CCs, bend, PSG, POLY, pedal%.0d\n", fails);
     return fails != 0;

@@ -74,6 +74,7 @@ static int scan_vfs(void)
             const char *name;
             uint16_t len;
             vfs_file(i, &name, &len);
+            if (name[0] == '!') continue;   /* (the test drums) */
             if (sl) {                       /* inside sub/ ? */
                 int k = 0;
                 while (k < sl && name[k] == sub[k]) k++;

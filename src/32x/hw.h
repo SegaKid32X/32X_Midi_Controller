@@ -44,6 +44,7 @@ void hw_load_palette(const uint16_t *pal, int n);
 
 /* ---- the 68000 ---- */
 int      md_cmd(int cmd, uint16_t p1, uint16_t p2, uint16_t p3);  /* blocking; the result */
+extern void (*poll_hook)(void);         /* run before each command and in long loops */
 uint16_t md_p(int which);               /* reply data: C_P1 / C_P2 / C_P3 */
 uint16_t hw_pad(void);                  /* held or pressed since the last call */
 uint16_t hw_flags(void);

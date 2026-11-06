@@ -17,7 +17,7 @@
 #include "audio.h"
 
 #define AUDIO_RING      8192            /* stereo samples (0.37 s at 22 kHz) */
-#define AUDIO_BLOCK     256
+#define AUDIO_BLOCK     128
 #define SH2_CLOCK_NTSC  23011361
 #define SH2_CLOCK_PAL   22801467
 

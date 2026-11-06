@@ -128,25 +128,13 @@ void gfx_num(int x, int y, int v, uint8_t c)
     gfx_text(x, y, t, c);
 }
 
-static uint8_t saved[SCREEN_W * SCREEN_H] __attribute__((aligned(16)));
-
-void gfx_save(void)
-{
-    uint32_t *d = (uint32_t *)(void *)saved, *s = (uint32_t *)(void *)canvas;
-    for (int i = 0; i < SCREEN_W * SCREEN_H / 4; i++) d[i] = s[i];
-}
-
-void gfx_restore(void)
-{
-    uint32_t *d = (uint32_t *)(void *)canvas, *s = (uint32_t *)(void *)saved;
-    for (int i = 0; i < SCREEN_W * SCREEN_H / 4; i++) d[i] = s[i];
-}
-
 void gfx_present(void)
 {
     volatile uint32_t *fb = (volatile uint32_t *)(void *)hw_row(0);
     const uint32_t *s = (const uint32_t *)(void *)canvas;
-    for (int i = 0; i < SCREEN_W * SCREEN_H / 4; i++)
+    for (int i = 0; i < SCREEN_W * SCREEN_H / 4; i++) {
         fb[i] = s[i];
+        if (!(i & 1023) && poll_hook) poll_hook();
+    }
     hw_flip();
 }

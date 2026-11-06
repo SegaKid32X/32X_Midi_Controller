@@ -37,6 +37,7 @@
 #define CMD_F_DIR_GET 0xC8
 #define CMD_F_FOPN   0xC9
 #define CMD_F_FRD    0xCA
+#define CMD_F_FRD_MEM 0xCB
 #define CMD_F_FWR    0xCC
 #define CMD_F_FCLOSE 0xCE
 #define CMD_F_FINFO  0xD0
@@ -327,6 +328,61 @@ int RAM ed_mkdir(const char *path)
     cmd_tx(CMD_F_DIR_MK);
     tx_string(path);
     int e = check_status();
+    rv_off();
+    COMM16(C_FLAGS) &= (uint16_t)~FL_BUSY;
+    return e;
+}
+
+/* Wait while the EverDrive's processor owns the cartridge bus (a file read
+ * into cartridge memory). From ed_halt_app in the EverDrive's sample code:
+ * post the status to wait for, start, then poll SYSSTAT until it reads
+ * 0x55A0 with the strobe toggling and that status bit clear. (SegaTube's,
+ * tested on a console.) */
+static int RAM run_dma(void)
+{
+    ED_SYSSTAT = STATUS_CMD_OK;
+    ED_FIFO = 0;                            /* run */
+    for (long t = 0; t < 4000000; t++) {
+        uint16_t s = ED_SYSSTAT;
+        if ((s & 0xFFF8) != (0x55A0 | STATUS_STROBE)) continue;
+        s = ED_SYSSTAT;
+        if ((s & 0xFFF8) != 0x55A0) continue;
+        if (s & STATUS_CMD_OK) continue;
+        return 0;
+    }
+    return -1;
+}
+
+/* A whole file into cartridge memory at cart_addr (the SH-2s read it there):
+ * 0 or an error; *len = its size. Files over max are refused. */
+int RAM ed_load_to_cart(const char *path, uint32_t cart_addr, uint32_t max, uint32_t *len)
+{
+    if (!ed_ok) return ERR_STATUS;
+    COMM16(C_FLAGS) |= FL_BUSY;
+    rv_on();
+    int e;
+    uint8_t resp, info[9];
+    char skip[2];
+    *len = 0;
+    cmd_tx(CMD_F_FINFO);
+    tx_string(path);
+    if (fifo_rd(&resp, 1)) { e = ERR_TIMEOUT; goto out; }
+    if (resp) { e = resp; goto out; }
+    if (fifo_rd(info, 9) || rx_name(skip, 1)) { e = ERR_TIMEOUT; goto out; }
+    *len = (uint32_t)info[0] << 24 | (uint32_t)info[1] << 16 | (uint32_t)info[2] << 8 | info[3];
+    if (*len > max) { e = ERR_TOO_BIG; goto out; }
+    cmd_tx(CMD_F_FOPN);
+    fifo_wr8(FA_READ);
+    tx_string(path);
+    e = check_status();
+    if (e) goto out;
+    cmd_tx(CMD_F_FRD_MEM);
+    fifo_wr32(cart_addr);
+    fifo_wr32((*len + 1) & ~1u);
+    e = run_dma() ? ERR_TIMEOUT : check_status();
+    cmd_tx(CMD_F_FCLOSE);
+    (void)check_status();
+out:
     rv_off();
     COMM16(C_FLAGS) &= (uint16_t)~FL_BUSY;
     return e;

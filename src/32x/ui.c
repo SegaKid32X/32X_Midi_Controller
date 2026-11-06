@@ -16,11 +16,14 @@
 #include "lib.h"
 #include "ui.h"
 #include "guide.h"
+#include "synth.h"
 
 enum { SCR_LIBRARY, SCR_EDITOR };
 enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS };
 
 #define ALL_CH      6
+#define DRUMS_T     7           /* the 32X's drum kit (MIDI channel 16) */
+#define NTARGET     8
 #define LIST_ROWS   19
 #define LIST_Y      22
 
@@ -31,7 +34,9 @@ static char chan_path[6][PATH_MAX_ + NAME_MAX + 2];   /* the file each channel c
 static int chan_edited[6];
 static fm_patch voice;                  /* the voice shown (the editor's channel) */
 static int ed_row, ed_col, save_choice, menu_choice, set_row;
-static uint8_t settings[SET_COUNT];
+#define SET_PWM_VOL SET_COUNT     /* (kept here: the 32X's own setting) */
+#define NSET        (SET_COUNT + 1)
+static uint8_t settings[NSET];
 static int preview_note = -1;           /* the note X is playing, or -1 */
 static void menu_input(uint16_t p);
 static void settings_input(uint16_t p);
@@ -59,7 +64,7 @@ static void say_err(const char *what, int e)
     say(t);
 }
 
-static int shown_ch(void) { return target == ALL_CH ? 0 : target; }
+static int shown_ch(void) { return target >= ALL_CH ? 0 : target; }
 
 /* ------------------------------------------------------------ input */
 
@@ -89,7 +94,8 @@ static uint16_t read_buttons(void)
 
 /* ------------------------------------------------------------ drawing helpers */
 
-static const char *const ch_names[7] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6", "ALL" };
+static const char *const ch_names[NTARGET] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6", "ALL", "DRUMS" };
+static int drum_pick;                   /* X on DRUMS: the sample it plays next */
 
 static void header(const char *title)
 {
@@ -204,7 +210,7 @@ static void apply_to_target(const fm_patch *p, const char *rel)
 
 static void load_cursor(void)
 {
-    if (lib_is_dir(cursor)) return;
+    if (lib_is_dir(cursor) || target == DRUMS_T) return;
     fm_patch p;
     int e = lib_load(cursor, &p);
     if (e) {
@@ -263,6 +269,26 @@ static void draw_library(void)
     gfx_text(px, 20, "TARGET", COL_DIM);
     gfx_text(px + 42, 20, ch_names[target], COL_HI);
     gfx_text(px + 80, 20, "C", COL_DIM);
+    if (target == DRUMS_T) {                    /* the kit, note by note */
+        if (!synth_count) {
+            gfx_text(px, 40, "NO DRUM SAMPLES", COL_HI);
+            gfx_text(px, 54, "PUT .WAV FILES IN", COL_TEXT);
+            gfx_text(px, 64, "MIDI_DRUMS ON THE", COL_TEXT);
+            gfx_text(px, 74, "SD CARD.  THEY", COL_TEXT);
+            gfx_text(px, 84, "PLAY ON MIDI", COL_TEXT);
+            gfx_text(px, 94, "CHANNEL 16.", COL_TEXT);
+            gfx_text(px, 112, "NEEDS THE NEW", COL_DIM);
+            gfx_text(px, 122, "TEENSY FIRMWARE", COL_DIM);
+        }
+        gfx_text(px, 32, "MIDI CH 16   X HEAR", COL_DIM);
+        for (int i = 0; i < synth_count && i < 17; i++) {
+            int y = 44 + i * 9;
+            gfx_num(px, y, synth_note_of(i), i == drum_pick ? COL_HI : COL_HEAD);
+            gfx_text_n(px + 22, y, synth_names[i], 15, i == drum_pick ? COL_HI : COL_TEXT);
+        }
+        if (synth_count > 17) gfx_text(px, 44 + 17 * 9, "...", COL_DIM);
+        goto footers;
+    }
     char t[40], *o = t;
     o = (char *)memcpy(o, "ALG ", 4) + 4; o = fmt_num(o, voice.alg);
     o = (char *)memcpy(o, "  FB ", 5) + 5; o = fmt_num(o, voice.fb); *o = 0;
@@ -273,6 +299,7 @@ static void draw_library(void)
         gfx_num(px + 12, 104 + i * 20, i + 1, COL_DIM);
         draw_envelope(px + 22, 100 + i * 20, 92, 17, &voice.op[i], COL_ORANGE);
     }
+footers:
     if (lib_count && lib_is_dir(cursor))
         footer(lib_path[0] ? "A OPEN THE FOLDER  B UP  START MENU" : "A OPEN THE FOLDER  START MENU");
     else if (lib_count)
@@ -298,7 +325,7 @@ static void library_input(uint16_t p)
     if (cursor < top) top = cursor;
     if (cursor >= top + LIST_ROWS) top = cursor - LIST_ROWS + 1;
     if (p & PAD_C) {
-        target = (target + 1) % 7;
+        target = (target + 1) % NTARGET;
         voice_read(shown_ch(), &voice);
         dirty = 1;
     }
@@ -323,6 +350,10 @@ static void library_input(uint16_t p)
     }
     if ((p & PAD_A) && !lib_count) {
         if (!lib_path[0]) ui_rescan();
+        return;
+    }
+    if ((p & PAD_A) && target == DRUMS_T && !lib_is_dir(cursor)) {
+        say("DRUMS: CHOOSE A CHANNEL WITH C TO EDIT");
         return;
     }
     if ((p & PAD_A) && lib_is_dir(cursor)) {
@@ -706,13 +737,16 @@ static void draw_menu(void)
     gfx_text(70, 124, "A: CHOOSE   B: BACK", COL_DIM);
 }
 
-static const char *const set_names[SET_COUNT] = { "MODE", "POLY MIDI CHANNEL", "TUNING", "VELOCITY", "STEREO SPREAD" };
-static const uint8_t set_max[SET_COUNT] = { 1, 15, 1, 1, 1 };
+static const char *const set_names[NSET] = { "MODE", "POLY MIDI CHANNEL", "TUNING", "VELOCITY",
+                                             "STEREO SPREAD", "32X VOLUME (DRUMS)" };
+static const uint8_t set_max[NSET] = { 1, 15, 1, 1, 1, 10 };
 
 static void settings_fetch(void)
 {
     for (int i = 0; i < SET_COUNT; i++)
         settings[i] = (uint8_t)md_cmd(CMD_SETTING, (uint16_t)i, 0xFFFF, 0);
+    static int first = 1;
+    if (first) { settings[SET_PWM_VOL] = 8; first = 0; }
 }
 
 static void draw_settings(void)
@@ -720,8 +754,8 @@ static void draw_settings(void)
     char t[24];
     panel(16, 30, 288, 160);
     gfx_text(26, 37, "SETTINGS", COL_HI);
-    for (int i = 0; i < SET_COUNT; i++) {
-        int y = 54 + i * 13;
+    for (int i = 0; i < NSET; i++) {
+        int y = 50 + i * 12;
         int v = settings[i];
         if (i == set_row) gfx_rect(22, y - 3, 276, 13, COL_CURSOR);
         gfx_text(28, y, set_names[i], COL_TEXT);
@@ -729,23 +763,25 @@ static void draw_settings(void)
         case SET_MODE: strcpy(t, v ? "POLY (6 VOICES)" : "GENMDM (CH 1-6)"); break;
         case SET_POLY_CH: *fmt_num(t, v + 1) = 0; break;
         case SET_REGION: strcpy(t, v ? "PAL" : "NTSC"); break;
+        case SET_PWM_VOL: *fmt_num(t, v) = 0; break;
         default: strcpy(t, v ? "ON" : "OFF"); break;
         }
         gfx_text(190, y, t, i == set_row ? COL_HI : COL_TEXT);
     }
-    static const char *const help[SET_COUNT] = {
+    static const char *const help[NSET] = {
         "GENMDM: MIDI CH 1-6 PLAY FM 1-6.  POLY: ONE",
         "THE CHANNEL YOUR KEYBOARD SENDS ON (POLY)",
         "MATCH YOUR CONSOLE SO NOTES ARE IN TUNE",
         "HARDER KEYS PLAY LOUDER",
         "EACH POLY NOTE LEFT, RIGHT OR CENTRE",
+        "THE 32X'S VOICES AGAINST THE MEGA DRIVE'S",
     };
-    gfx_text(28, 128, help[set_row], COL_DIM);
+    gfx_text(28, 128 + 6, help[set_row], COL_DIM);
     if (set_row == SET_MODE)
-        gfx_text(28, 139, "CHANNEL PLAYS ALL SIX FM VOICES", COL_DIM);
+        gfx_text(28, 139 + 6, "CHANNEL PLAYS ALL SIX FM VOICES", COL_DIM);
     if ((hw_flags() & FL_LINK) != LINK_MIDI) {
-        gfx_text(28, 156, "THESE NEED THE NEW TEENSY FIRMWARE:", COL_ORANGE);
-        gfx_text(28, 166, "THE STOCK ONE DECIDES ALL THIS ITSELF", COL_ORANGE);
+        gfx_text(28, 157, "THESE NEED THE NEW TEENSY FIRMWARE:", COL_ORANGE);
+        gfx_text(28, 167, "THE STOCK ONE DECIDES ALL THIS ITSELF", COL_ORANGE);
     }
     gfx_text(28, 178, "UP/DOWN CHOOSE  LEFT/RIGHT CHANGE  B BACK", COL_DIM);
 }
@@ -769,14 +805,19 @@ static void menu_input(uint16_t p)
 
 static void settings_input(uint16_t p)
 {
-    if (p & PAD_UP) set_row = (set_row + SET_COUNT - 1) % SET_COUNT;
-    if (p & PAD_DOWN) set_row = (set_row + 1) % SET_COUNT;
+    if (p & PAD_UP) set_row = (set_row + NSET - 1) % NSET;
+    if (p & PAD_DOWN) set_row = (set_row + 1) % NSET;
     int d = (p & (PAD_RIGHT | PAD_A)) ? 1 : (p & PAD_LEFT) ? -1 : 0;
     if (d) {
         int v = settings[set_row] + d;
         if (v < 0) v = set_max[set_row];
         if (v > set_max[set_row]) v = 0;
-        settings[set_row] = (uint8_t)md_cmd(CMD_SETTING, (uint16_t)set_row, (uint16_t)v, 0);
+        if (set_row == SET_PWM_VOL) {
+            settings[set_row] = (uint8_t)v;
+            synth_set_volume(v);
+        } else {
+            settings[set_row] = (uint8_t)md_cmd(CMD_SETTING, (uint16_t)set_row, (uint16_t)v, 0);
+        }
         if (set_row == SET_MODE && v == 1) target = ALL_CH;     /* POLY: patches go to all six */
     }
     if (p & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_A)) dirty = 1;
@@ -793,11 +834,20 @@ static void preview(void)
     int down = (held_now & PAD_X) != 0;
     if (down && preview_note < 0) {
         int mch = settings[SET_MODE] ? settings[SET_POLY_CH] : (target == ALL_CH ? 0 : target);
-        preview_note = 60 | mch << 8;
-        md_cmd(CMD_MIDI, (uint16_t)(3 << 8 | (0x90 | mch)), (uint16_t)(60 << 8 | 110), 0);
+        int note = 60;
+        if (target == DRUMS_T) {                /* the kit: each sample in turn */
+            if (!synth_count) return;
+            if (drum_pick >= synth_count) drum_pick = 0;
+            mch = 15;
+            note = synth_note_of(drum_pick);
+            dirty = 1;
+        }
+        preview_note = note | mch << 8;
+        md_cmd(CMD_MIDI, (uint16_t)(3 << 8 | (0x90 | mch)), (uint16_t)(note << 8 | 110), 0);
     } else if (!down && preview_note >= 0) {
-        md_cmd(CMD_MIDI, (uint16_t)(3 << 8 | (0x80 | preview_note >> 8)), (uint16_t)(60 << 8), 0);
+        md_cmd(CMD_MIDI, (uint16_t)(3 << 8 | (0x80 | (preview_note >> 8))), (uint16_t)((preview_note & 0xFF) << 8), 0);
         preview_note = -1;
+        if (target == DRUMS_T && synth_count) { drum_pick = (drum_pick + 1) % synth_count; dirty = 1; }
     }
 }
 
@@ -829,6 +879,7 @@ void ui_rescan(void)
     gfx_text(16, 60, "LOOKING FOR PATCHES IN MIDI_PATCHES...", COL_TEXT);
     gfx_present();
     int n = lib_scan();
+    synth_load_drums(0);
     if (n < 0) {
         if (-n == ERR_NO_ED) say("NO EVERDRIVE: CANNOT READ THE SD CARD");
         else say_err("SD CARD ERROR", -n);
@@ -885,8 +936,8 @@ void ui_frame(void)
     if (message_timer > 0 && --message_timer == 0)
         dirty = 1;
     static uint16_t last_flags;
-    if (hw_flags() != last_flags) {
-        last_flags = hw_flags();
+    if ((hw_flags() & 0xFF) != last_flags) {    /* (the high byte counts the 32X's events) */
+        last_flags = hw_flags() & 0xFF;
         dirty = 1;
     }
     if (dirty)

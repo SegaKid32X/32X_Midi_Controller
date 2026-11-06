@@ -81,16 +81,16 @@ $(OBJ)/$(TARGET).raw: $(OBJ)/$(TARGET).elf
 
 $(ROM): $(OBJ)/$(TARGET).raw | rom
 	cp $< $@
-	python3 tools/romfix.py $@ --pow2 --gran 524288
+	python3 tools/romfix.py $@ --pow2 --gran 4194304   # 4 MiB: drum samples land at 0x100000-0x3FFFFF
 	python3 tests/verify_rom.py $@ $(OBJ)/$(TARGET).elf $(MARKERS) --min-text 2048
 
 # ---- the test ROM: patches built in (the emulator has no SD card) ----
 $(OBJ)/testpatches/stamp: tests/make_test_patches.py | $(OBJ)
-	rm -rf $(OBJ)/testpatches
+	rm -rf $(OBJ)/testpatches $(OBJ)/testdrums
 	python3 tests/make_test_patches.py $(OBJ)/testpatches
 	touch $@
 test-rom: $(OBJ)/$(TARGET).raw $(OBJ)/testpatches/stamp | rom
-	python3 tools/mkvfs.py $(OBJ)/$(TARGET).raw $(TESTROM) $(OBJ)/testpatches
+	python3 tools/mkvfs.py $(OBJ)/$(TARGET).raw $(TESTROM) $(OBJ)/testpatches $(OBJ)/testdrums
 	python3 tools/romfix.py $(TESTROM) --pow2 --gran 524288
 	python3 tests/verify_rom.py $(TESTROM) $(OBJ)/$(TARGET).elf $(MARKERS) --marker "PATFS@" --min-text 2048
 

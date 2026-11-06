@@ -1,0 +1,39 @@
+# The drum kit: C to the DRUMS target shows it; X plays each sample in turn
+# (through the 32X's PWM), and they stop by themselves.
+# pad6
+run 300
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 30
+shot drums_target
+audiomark
+run 20
+quiet 150
+press x 6
+run 2
+audiomark
+run 12
+loud 300
+shot drum_hit
+run 60
+press x 6
+run 2
+audiomark
+run 10
+loud 200
+run 90
+audiomark
+run 30
+quiet 150
+telem

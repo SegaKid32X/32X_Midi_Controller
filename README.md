@@ -47,6 +47,25 @@ console does, which brings:
 - **Velocity** (a piano-like curve), the **sustain pedal**, pitch bend,
   NTSC/PAL tuning: START on the home screen, Settings.
 - **A handshake**: every MIDI byte arrives, even while the SD card is busy.
+- **The 32X's own sound (PWM)** on MIDI channels 11-16: a **drum kit** from
+  WAV files on channel 16 (below), and software FM voices (coming).
+
+## Drums (MIDI channel 16, our firmware)
+
+Put WAV drum samples (8 or 16 bit, mono or stereo, any sample rate) in a
+folder `MIDI_DRUMS` at the top of the SD card. Each file gets a note:
+
+- a name starting with a number uses that note: `36 Kick.wav`, `038 snare.wav`;
+- otherwise words in the name pick the General MIDI drum note: kick 36,
+  rim 37, snare 38, clap 39, closed hat 42, pedal hat 44, open hat 46, toms
+  45/47/50, crash 49, ride 51, tambourine 54, cowbell 56, shaker 70, ...;
+- otherwise the next free note from 60.
+
+A closed or pedal hi-hat stops an open one. Velocity, CC 7 (volume) and
+CC 10 (pan) work; Settings has the 32X's volume. On the home screen, C
+until the target says DRUMS lists the kit, and X plays each sample in turn.
+The samples load into the EverDrive's cartridge memory (up to about 3 MB in
+all).
 
 To flash it: install Teensy Loader (pjrc.com/teensy/loader.html), plug the
 GenMDM's USB in, open `release/midi32x.hex`, turn on Auto, press the Teensy's

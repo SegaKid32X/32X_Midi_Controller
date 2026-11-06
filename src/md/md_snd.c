@@ -69,6 +69,11 @@ void psg_write(uint8_t b)
     }
 }
 
+void flags_publish(void)
+{
+    COMM16(C_FLAGS) = md_flags;
+}
+
 void act_bump(void)
 {
     COMM16(C_ACT) = ++act_count;

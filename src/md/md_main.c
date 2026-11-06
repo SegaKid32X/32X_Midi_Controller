@@ -121,6 +121,21 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
         put6(b);
         return (unsigned)((len > 127 ? 127 : len) | (file_is_dir(p1) ? 0x80 : 0));
     }
+    case CMD_EVENTS: {
+        uint8_t head = (uint8_t)(md_flags >> 8), at = (uint8_t)p1;
+        int n = 0;
+        for (; n < 2 && at != head; n++, at++)
+            for (int k = 0; k < 3; k++) b[n * 3 + k] = ev_ring[at][k];
+        for (int k = n * 3; k < 6; k++) b[k] = 0;
+        put6(b);
+        return (unsigned)n;
+    }
+    case CMD_DRUMS: {
+        int n = drums_scan();
+        return (unsigned)(n > 255 ? 255 : n);
+    }
+    case CMD_DRUM:
+        return drum_info(p1, p2);
     case CMD_CD:
         files_cd();
         return 0;

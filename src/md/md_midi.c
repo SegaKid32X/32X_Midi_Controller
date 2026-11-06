@@ -344,6 +344,30 @@ static void control(int mch, int cc, int v)
     }
 }
 
+/* ------------------------------------------------------------ the 32X's voices */
+
+/* MIDI channels 11-16 belong to the 32X's PWM voices (drums, software FM):
+ * their messages wait here for the master SH-2, which sees the head in
+ * C_FLAGS' high byte and fetches them (CMD_EVENTS). 256 x 3 bytes. */
+uint8_t ev_ring[256][3];
+
+static void ev_push(uint8_t st, uint8_t a, uint8_t b)
+{
+    uint8_t h = (uint8_t)(md_flags >> 8);
+    ev_ring[h][0] = st;
+    ev_ring[h][1] = a;
+    ev_ring[h][2] = b;
+    md_flags = (uint16_t)((md_flags & 0xFF) | (uint8_t)(h + 1) << 8);
+    flags_publish();
+}
+
+static int to_pwm(int mch)
+{
+    if (mch < 10) return 0;
+    if (special3 && mch <= 12) return 0;        /* (channel 3 special mode has 11-13) */
+    return 1;
+}
+
 /* ------------------------------------------------------------ the parser */
 
 static uint8_t status, data[2], ndata, need;
@@ -379,6 +403,10 @@ void midi_byte(uint8_t b)
     if (ndata < need) return;
     ndata = 0;
     int mch = status & 15;
+    if (to_pwm(mch)) {
+        ev_push(status, data[0], need > 1 ? data[1] : 0);
+        return;
+    }
     switch (status & 0xF0) {
     case 0x80: note_off(mch, data[0]); break;
     case 0x90: if (data[1]) note_on(mch, data[0], data[1]); else note_off(mch, data[0]); break;

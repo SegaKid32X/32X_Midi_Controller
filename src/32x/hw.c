@@ -75,9 +75,11 @@ void hw_init(void)
 /* ------------------------------------------------------------ the 68000 */
 
 static uint16_t cmd_seq, pad_ack;
+void (*poll_hook)(void);
 
 int md_cmd(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
 {
+    if (poll_hook) poll_hook();
     cmd_seq = (uint16_t)((cmd_seq + 1) & 7);
     MARS_COMM(C_P1) = p1;
     MARS_COMM(C_P2) = p2;

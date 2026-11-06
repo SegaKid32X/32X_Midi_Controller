@@ -24,8 +24,6 @@ void gfx_text(int x, int y, const char *s, uint8_t c);      /* pixel position */
 int  gfx_text_n(int x, int y, const char *s, int max, uint8_t c);
 void gfx_num(int x, int y, int v, uint8_t c);
 void gfx_present(void);
-void gfx_save(void);                    /* keep the canvas (for overlays) */
-void gfx_restore(void);
 
 char *fmt_num(char *o, int v);          /* a decimal number, no terminator */
 
