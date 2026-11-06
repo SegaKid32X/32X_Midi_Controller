@@ -27,7 +27,7 @@ enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS };
 static int screen = SCR_LIBRARY, overlay = OV_NONE;
 static int cursor, top, target;         /* target 0-5, or ALL_CH */
 static int load_timer = -1;
-static int chan_file[6] = { -1, -1, -1, -1, -1, -1 };   /* the file each channel came from */
+static char chan_path[6][PATH_MAX_ + NAME_MAX + 2];   /* the file each channel came from ("": none) */
 static int chan_edited[6];
 static fm_patch voice;                  /* the voice shown (the editor's channel) */
 static int ed_row, ed_col, save_choice, menu_choice, set_row;
@@ -182,30 +182,38 @@ static void draw_envelope(int x, int y, int w, int h, const fm_op *o, uint8_t co
 
 /* ------------------------------------------------------------ the library */
 
-static void apply_to_target(const fm_patch *p, int file)
+static void set_origin(int c, const char *rel)
+{
+    strncpy(chan_path[c], rel, sizeof chan_path[c] - 1);
+    chan_path[c][sizeof chan_path[c] - 1] = 0;
+    chan_edited[c] = 0;
+}
+
+static void apply_to_target(const fm_patch *p, const char *rel)
 {
     if (target == ALL_CH) {
         for (int c = 0; c < 6; c++) {
             voice_apply(c, p);
-            chan_file[c] = file;
-            chan_edited[c] = 0;
+            set_origin(c, rel);
         }
     } else {
         voice_apply(target, p);
-        chan_file[target] = file;
-        chan_edited[target] = 0;
+        set_origin(target, rel);
     }
 }
 
 static void load_cursor(void)
 {
+    if (lib_is_dir(cursor)) return;
     fm_patch p;
     int e = lib_load(cursor, &p);
     if (e) {
         say_err("CANNOT READ THAT FILE:", e);
         return;
     }
-    apply_to_target(&p, cursor);
+    char rel[PATH_MAX_ + NAME_MAX + 2];
+    lib_rel(cursor, rel);
+    apply_to_target(&p, rel);
     voice = p;
 }
 
@@ -213,7 +221,16 @@ static void draw_library(void)
 {
     gfx_clear(COL_BG);
     header("32X MIDI CONTROLLER");
-    if (!lib_count) {
+    {                                           /* where we are */
+        char where[PATH_MAX_ + 16] = "MIDI_PATCHES";
+        if (lib_path[0]) { strcat(where, "/"); strcat(where, lib_path); }
+        int n = (int)strlen(where), max = 31;
+        gfx_text(6, 13, n > max ? where + n - max : where, COL_HEAD);
+    }
+    if (!lib_count && lib_path[0]) {
+        gfx_text(16, 60, "THIS FOLDER HAS NO PATCH FILES", COL_HI);
+        gfx_text(16, 76, "B: BACK UP A FOLDER", COL_TEXT);
+    } else if (!lib_count) {
         gfx_text(16, 60, "NO PATCH FILES FOUND", COL_HI);
         gfx_text(16, 76, "PUT .TFI .DMP OR .Y12 FILES IN THE FOLDER", COL_TEXT);
         gfx_text(16, 88, "MIDI_PATCHES ON THE SD CARD.", COL_TEXT);
@@ -223,7 +240,14 @@ static void draw_library(void)
         int i = top + r, y = LIST_Y + r * CHAR_H;
         if (i == cursor)
             gfx_rect(2, y - 1, 186, CHAR_H, COL_CURSOR);
-        gfx_text_n(6, y, lib_name(i), 30, i == cursor ? COL_HI : COL_TEXT);
+        if (lib_is_dir(i)) {                    /* a folder: a tab and a name in blue */
+            gfx_rect(6, y + 1, 4, 2, COL_HEAD);
+            gfx_rect(6, y + 2, 9, 5, COL_HEAD);
+            int n = gfx_text_n(18, y, lib_name(i), 27, i == cursor ? COL_HI : COL_HEAD);
+            gfx_text(18 + n * CHAR_W, y, "/", COL_HEAD);
+        } else {
+            gfx_text_n(6, y, lib_name(i), 30, i == cursor ? COL_HI : COL_TEXT);
+        }
     }
     if (lib_count > LIST_ROWS) {                /* the scroll bar */
         int h = LIST_ROWS * CHAR_H;
@@ -249,7 +273,13 @@ static void draw_library(void)
         gfx_num(px + 12, 104 + i * 20, i + 1, COL_DIM);
         draw_envelope(px + 22, 100 + i * 20, 92, 17, &voice.op[i], COL_ORANGE);
     }
-    footer(lib_count ? "UP/DN PATCH  C CHAN  A EDIT  X HEAR  START MENU" : "A: LOOK AGAIN   START: MENU");
+    if (lib_count && lib_is_dir(cursor))
+        footer(lib_path[0] ? "A OPEN THE FOLDER  B UP  START MENU" : "A OPEN THE FOLDER  START MENU");
+    else if (lib_count)
+        footer(lib_path[0] ? "UP/DN PATCH  C CHAN  A EDIT  B UP  X HEAR"
+                           : "UP/DN PATCH  C CHAN  A EDIT  X HEAR  START MENU");
+    else
+        footer(lib_path[0] ? "B: BACK UP A FOLDER" : "A: LOOK AGAIN   START: MENU");
 }
 
 static void library_input(uint16_t p)
@@ -262,7 +292,7 @@ static void library_input(uint16_t p)
     if (cursor >= lib_count) cursor = lib_count - 1;
     if (cursor < 0) cursor = 0;
     if (cursor != old) {
-        load_timer = 10;                        /* load once the cursor rests */
+        load_timer = lib_is_dir(cursor) ? -1 : 10;  /* load once the cursor rests */
         dirty = 1;
     }
     if (cursor < top) top = cursor;
@@ -278,8 +308,28 @@ static void library_input(uint16_t p)
         dirty = 1;
         return;
     }
+    if ((p & PAD_B) && lib_path[0]) {           /* up a folder, the cursor on it */
+        char from[NAME_MAX + 1];
+        strncpy(from, base_name(lib_path), NAME_MAX);
+        from[NAME_MAX] = 0;
+        lib_up();
+        cursor = top = 0;
+        for (int i = 0; i < lib_count; i++)
+            if (lib_is_dir(i) && !strcmp(lib_name(i), from)) cursor = i;
+        if (cursor >= LIST_ROWS) top = cursor - LIST_ROWS / 2;
+        load_timer = -1;
+        dirty = 1;
+        return;
+    }
     if ((p & PAD_A) && !lib_count) {
-        ui_rescan();
+        if (!lib_path[0]) ui_rescan();
+        return;
+    }
+    if ((p & PAD_A) && lib_is_dir(cursor)) {
+        if (lib_enter(cursor) < 0) say("CANNOT OPEN THAT FOLDER");
+        cursor = top = 0;
+        load_timer = -1;
+        dirty = 1;
         return;
     }
     if (p & PAD_A) {
@@ -289,7 +339,8 @@ static void library_input(uint16_t p)
         dirty = 1;
     }
     if ((p & PAD_Y) && lib_count) {
-        overlay = OV_DELETE;
+        if (lib_is_dir(cursor)) say("FOLDERS ARE NOT DELETED HERE");
+        else overlay = OV_DELETE;
         dirty = 1;
     }
 }
@@ -370,7 +421,7 @@ static void draw_editor(void)
     strcpy(o, ch_names[target]);
     header(t);
     int ch = shown_ch();
-    const char *name = chan_file[ch] >= 0 ? lib_name(chan_file[ch]) : "(NOT FROM A FILE)";
+    const char *name = chan_path[ch][0] ? chan_path[ch] : "(NOT FROM A FILE)";
     gfx_text_n(4, 16, name, 34, COL_TEXT);
     if (chan_edited[ch]) gfx_text(4 + 35 * CHAR_W, 16, "*", COL_ORANGE);
 
@@ -479,7 +530,7 @@ static void editor_input(uint16_t p)
     }
     if (p & PAD_START) {
         overlay = OV_SAVE;
-        save_choice = chan_file[shown_ch()] >= 0 ? 0 : 1;
+        save_choice = chan_path[shown_ch()][0] ? 0 : 1;
         dirty = 1;
     }
     if (p & PAD_Y) {
@@ -547,14 +598,14 @@ static void draw_save(void)
     const char *opt[4] = { "OVERWRITE ", "NEW .TFI FILE", "NEW .DMP FILE", "NEW .Y12 FILE" };
     for (int i = 0; i < 4; i++) {
         int y = 92 + i * 11;
-        if (i == 0 && chan_file[ch] < 0) {
+        if (i == 0 && !chan_path[ch][0]) {
             gfx_text(40, y, "OVERWRITE (NOT FROM A FILE)", COL_DIM);
             continue;
         }
         if (i == save_choice) gfx_rect(36, y - 2, 248, 11, COL_CURSOR);
         if (i == 0) {
             strcpy(t, opt[0]);
-            strncat(t, lib_name(chan_file[ch]), 30);
+            strncat(t, base_name(chan_path[ch]), 30);
             gfx_text(40, y, t, COL_TEXT);
         } else {
             gfx_text(40, y, opt[i], COL_TEXT);
@@ -566,12 +617,16 @@ static void draw_save(void)
 static void do_save(void)
 {
     int ch = shown_ch();
-    char name[NAME_MAX + 1];
+    char name[PATH_MAX_ + NAME_MAX + 2];
     static const char *const ext[4] = { "", "tfi", "dmp", "y12" };
     if (save_choice == 0) {
-        strcpy(name, lib_name(chan_file[ch]));
-    } else {
-        lib_new_name(name, ext[save_choice]);
+        strcpy(name, chan_path[ch]);
+    } else {                                    /* a new file in the folder shown */
+        char base[NAME_MAX + 1];
+        lib_new_name(base, ext[save_choice]);
+        name[0] = 0;
+        if (lib_path[0]) { strcpy(name, lib_path); strcat(name, "/"); }
+        strcat(name, base);
     }
     say("SAVING...");
     ui_draw();
@@ -581,15 +636,13 @@ static void do_save(void)
         return;
     }
     lib_scan();
-    int i = lib_find(name);
     if (target == ALL_CH) {
-        for (int c = 0; c < 6; c++) { chan_file[c] = i; chan_edited[c] = 0; }
+        for (int c = 0; c < 6; c++) set_origin(c, name);
     } else {
-        chan_file[ch] = i;
-        chan_edited[ch] = 0;
+        set_origin(ch, name);
     }
     char t[60] = "SAVED ";
-    strncat(t, name, 50);
+    strncat(t, base_name(name), 50);
     say(t);
 }
 
@@ -609,12 +662,13 @@ static void overlay_input(uint16_t p)
         break;
     case OV_DELETE:
         if (p & PAD_A) {
-            char name[NAME_MAX + 1];
-            strcpy(name, lib_name(cursor));
+            char name[PATH_MAX_ + NAME_MAX + 2];
+            lib_rel(cursor, name);
             int e = lib_delete(name);
             overlay = OV_NONE;
             if (e) { say_err("COULD NOT DELETE:", e); break; }
-            for (int c = 0; c < 6; c++) chan_file[c] = -1;
+            for (int c = 0; c < 6; c++)
+                if (!strcmp(chan_path[c], name)) chan_path[c][0] = 0;
             lib_scan();
             if (cursor >= lib_count) cursor = lib_count - 1;
             if (cursor < 0) cursor = 0;
@@ -625,7 +679,7 @@ static void overlay_input(uint16_t p)
         }
         break;
     case OV_SAVE: {
-        int first = chan_file[shown_ch()] >= 0 ? 0 : 1;
+        int first = chan_path[shown_ch()][0] ? 0 : 1;
         if (p & PAD_UP) save_choice = save_choice > first ? save_choice - 1 : 3;
         if (p & PAD_DOWN) save_choice = save_choice < 3 ? save_choice + 1 : first;
         if (p & (PAD_UP | PAD_DOWN)) dirty = 1;
@@ -796,7 +850,9 @@ void ui_start(void)
 void ui_frame(void)
 {
     uint16_t p = read_buttons();
-    int help_key = (hw_flags() & FL_PAD3) ? (screen == SCR_LIBRARY ? PAD_B : 0) : PAD_MODE;
+    /* (a 3-button pad: B is the help on the home screen's top folder; in a
+     * folder it goes up) */
+    int help_key = (hw_flags() & FL_PAD3) ? (screen == SCR_LIBRARY && !lib_path[0] ? PAD_B : 0) : PAD_MODE;
     if (overlay != OV_NONE) {
         overlay_input(p);
     } else if (p & help_key) {

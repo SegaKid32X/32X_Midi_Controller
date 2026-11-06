@@ -119,8 +119,11 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
         for (int k = 0; k < 6; k++)
             b[k] = p2 + k < len ? (uint8_t)n[p2 + k] : 0;
         put6(b);
-        return (unsigned)(len > 255 ? 255 : len);
+        return (unsigned)((len > 127 ? 127 : len) | (file_is_dir(p1) ? 0x80 : 0));
     }
+    case CMD_CD:
+        files_cd();
+        return 0;
     case CMD_LOAD: {
         uint16_t size = 0;
         int e = file_load(p1, &size);

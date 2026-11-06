@@ -4,8 +4,10 @@
 #include "lib.h"
 
 int lib_count;
+char lib_path[PATH_MAX_];
 static char pool[40000];
 static uint16_t name_at[LIB_MAX];
+static uint8_t dir_of[LIB_MAX];
 uint8_t shadow_copy[528];
 
 int lib_scan(void)
@@ -19,8 +21,11 @@ int lib_scan(void)
     for (int i = 0; i < n; i++) {
         int len = 0;
         char name[NAME_MAX + 1];
+        int is_dir = 0;
         for (int off = 0; ; off += 6) {
             int total = md_cmd(CMD_NAME, (uint16_t)i, (uint16_t)off, 0);
+            is_dir = total >> 7;
+            total &= 127;
             uint16_t w[3] = { md_p(C_P1), md_p(C_P2), md_p(C_P3) };
             for (int k = 0; k < 6 && len < NAME_MAX; k++)
                 if (off + k < total)
@@ -29,6 +34,7 @@ int lib_scan(void)
         }
         name[len] = 0;
         if (used + len + 1 > (int)sizeof pool) break;
+        dir_of[lib_count] = (uint8_t)is_dir;
         name_at[lib_count++] = (uint16_t)used;
         memcpy(pool + used, name, (size_t)len + 1);
         used += len + 1;
@@ -39,6 +45,59 @@ int lib_scan(void)
 const char *lib_name(int i)
 {
     return i >= 0 && i < lib_count ? pool + name_at[i] : "";
+}
+
+int lib_is_dir(int i)
+{
+    return i >= 0 && i < lib_count && dir_of[i];
+}
+
+void lib_rel(int i, char *out)
+{
+    out[0] = 0;
+    if (lib_path[0]) {
+        strcpy(out, lib_path);
+        strcat(out, "/");
+    }
+    strcat(out, lib_name(i));
+}
+
+const char *base_name(const char *rel)
+{
+    const char *b = rel;
+    for (; *rel; rel++) if (*rel == '/') b = rel + 1;
+    return b;
+}
+
+static int put_name(const char *name);
+
+int lib_cd(const char *path)
+{
+    if (strlen(path) >= PATH_MAX_) return ERR_RANGE;
+    strcpy(lib_path, path);
+    put_name(lib_path);
+    md_cmd(CMD_CD, 0, 0, 0);
+    return lib_scan();
+}
+
+int lib_enter(int i)
+{
+    char p[PATH_MAX_ + NAME_MAX + 2];
+    lib_rel(i, p);
+    if (strlen(p) >= PATH_MAX_) return ERR_RANGE;
+    return lib_cd(p);
+}
+
+int lib_up(void)
+{
+    if (!lib_path[0]) return 0;
+    char p[PATH_MAX_];
+    strcpy(p, lib_path);
+    char *slash = p;
+    for (char *q = p; *q; q++) if (*q == '/') slash = q;
+    *slash = 0;
+    lib_cd(p);
+    return 1;
 }
 
 int lib_find(const char *name)
@@ -78,16 +137,17 @@ static int put_bytes(int at, const uint8_t *b, int n)
 
 static int put_name(const char *name)
 {
-    uint8_t n[64];
+    uint8_t n[BUF_DATA - BUF_NAME];
     memset(n, 0, sizeof n);
-    for (int i = 0; i < 63 && name[i]; i++) n[i] = (uint8_t)name[i];
-    return put_bytes(BUF_NAME, n, 64);
+    int len = 0;
+    for (; len < (int)sizeof n - 1 && name[len]; len++) n[len] = (uint8_t)name[len];
+    return put_bytes(BUF_NAME, n, len + 1);         /* (with its zero) */
 }
 
 int lib_save(const char *name, const fm_patch *p)
 {
     uint8_t data[PATCH_FILE_MAX];
-    int len = patch_write(p, patch_format_of(name), name, data);
+    int len = patch_write(p, patch_format_of(name), base_name(name), data);
     if (!len) return ERR_RANGE;
     int r = put_name(name);
     if (!r) r = put_bytes(BUF_DATA, data, len);

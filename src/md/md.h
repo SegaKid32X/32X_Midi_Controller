@@ -88,6 +88,8 @@ const char *file_name(int i);
 int  file_load(int i, uint16_t *size);  /* into file_buf + BUF_DATA */
 int  file_save(uint16_t len);
 int  file_delete(void);
+int  file_is_dir(int i);
+void files_cd(void);            /* the folder at BUF_NAME (inside MIDI_PATCHES) */
 
 /* md_ed.c: the Mega EverDrive (runs from work RAM with RV = 1) */
 int  ed_detect(void);                   /* 1 if it answers */

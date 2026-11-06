@@ -92,3 +92,9 @@ char *strncat(char *dst, const char *src, size_t n)
     *d = 0;
     return dst;
 }
+
+char *strcat(char *dst, const char *src)
+{
+    stpcpy(dst + strlen(dst), src);
+    return dst;
+}

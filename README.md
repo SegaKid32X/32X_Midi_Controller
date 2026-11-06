@@ -5,7 +5,9 @@ GenMDM interface stays in controller port 2, and the 32X replaces the GenMDM
 cartridge with a full on-screen instrument editor.
 
 - **Patch library:** every `.TFI`, `.DMP` and `.Y12` file in the SD card's
-  `MIDI_PATCHES` folder (made on the first save if it is missing). Choosing one loads it into the target channel (1-6, or all six) at once.
+  `MIDI_PATCHES` folder, and in folders inside it (as deep as you like: A
+  opens a folder, B goes back up). `MIDI_PATCHES` is made on the first save
+  if it is missing; new files go into the folder you are looking at. Choosing one loads it into the target channel (1-6, or all six) at once.
 - **FM editor:** algorithm, feedback, pan, AMS/FMS, the LFO and every operator
   setting, with the algorithm drawn as a diagram and each operator's envelope
   as a graph. Changes are heard immediately.
@@ -60,7 +62,7 @@ avr-gcc); it uses PJRC's USB MIDI code (MIT).
 |---|---|---|
 | D-pad | choose a patch (it loads); left/right a page | choose a setting |
 | A | edit the target channel's voice | value up |
-| B | (3-button pad: the controls panel) | value down |
+| B | up a folder (3-button pad, top folder: the controls) | value down |
 | C | target channel 1-6 / ALL | next channel |
 | X | hear it: middle C while held | value up by 10 |
 | Z | | value down by 10 |

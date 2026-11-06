@@ -9,9 +9,18 @@
 #define LIB_MAX     999
 #define NAME_MAX    75
 
+#define PATH_MAX_   160
+
 extern int lib_count;
+extern char lib_path[PATH_MAX_];        /* the folder shown, inside MIDI_PATCHES ("" = the top) */
 int  lib_scan(void);                    /* count (>= 0) or -ERR_* */
+int  lib_cd(const char *path);          /* show another folder (and scan it) */
+int  lib_enter(int i);                  /* into folder i */
+int  lib_up(void);                      /* up a folder; 0 if at the top already */
 const char *lib_name(int i);
+int  lib_is_dir(int i);
+void lib_rel(int i, char *out);         /* entry i's path inside MIDI_PATCHES */
+const char *base_name(const char *rel);
 int  lib_load(int i, fm_patch *p);      /* 0 or an error */
 int  lib_save(const char *name, const fm_patch *p);    /* 0 or an error */
 int  lib_delete(const char *name);

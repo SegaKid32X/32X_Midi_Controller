@@ -56,8 +56,8 @@ static const page_t pages[] = {
         "CHANNEL: PLAY A KEY AND YOU HEAR IT.",
         "",
         "LEFT AND RIGHT JUMP A PAGE OF FILES.",
-        "",
-        "" },
+        "FOLDERS (BLUE, AT THE TOP): A OPENS ONE,",
+        "B GOES BACK UP. FOLDERS IN FOLDERS TOO." },
       PAD_DOWN, "TRY IT: PRESS DOWN" },
     { "THE TARGET CHANNEL", {
         "C CHANGES THE TARGET: CH 1 ... CH 6, THEN",

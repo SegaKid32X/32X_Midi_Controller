@@ -48,16 +48,17 @@
                              * 256-511 part II, 512-527 PSG (see SH_PSG) */
 #define CMD_SCAN        5   /* look for patch files on the SD card -> count
                              * (0xFE: no EverDrive, 0xFF: SD error); count in P1 too */
-#define CMD_NAME        6   /* P1 = file index, P2 = offset: 6 name bytes into P1..P3
-                             * (0 after the end); reply = the name's length */
+#define CMD_NAME        6   /* P1 = entry index, P2 = offset: 6 name bytes into P1..P3
+                             * (0 after the end); reply = the name's length
+                             * (0-127) | 0x80 if it is a folder */
 #define CMD_LOAD        7   /* P1 = file index: read the file into the 68000's
                              * buffer -> 0 or error; P1 = its size */
 #define CMD_BUF_GET     8   /* P1 = offset: 6 buffer bytes into P1..P3 */
 #define CMD_BUF_PUT     9   /* P1 = offset, P2..P3 = 4 bytes into the buffer */
-#define CMD_SAVE        10  /* write the buffer: the name (zero-terminated) at
-                             * BUF_NAME, P1 bytes of data at BUF_DATA; create or
-                             * replace "/" + name -> 0 or error */
-#define CMD_DELETE      11  /* delete "/" + the name at BUF_NAME */
+#define CMD_SAVE        10  /* write the buffer: the path inside MIDI_PATCHES
+                             * (zero-terminated) at BUF_NAME, P1 bytes of data at
+                             * BUF_DATA; create or replace -> 0 or error */
+#define CMD_DELETE      11  /* delete the file at BUF_NAME (inside MIDI_PATCHES) */
 #define CMD_SILENCE     12  /* all notes off, PSG quiet */
 #define CMD_SETTING     13  /* P1 = SET_*, P2 = the value (0xFFFF: only read it)
                              * -> the value (the MIDI engine's settings) */
@@ -67,12 +68,14 @@
 #define SET_VELOCITY    3   /* 1: velocity sets the loudness */
 #define SET_SPREAD      4   /* POLY: stereo spread */
 #define SET_COUNT       5
+#define CMD_CD          15  /* the folder to list: BUF_NAME, a path inside
+                             * MIDI_PATCHES ("" = MIDI_PATCHES itself) */
 #define CMD_MIDI        14  /* P1 = count << 8 | byte 1, P2 = byte 2 << 8 | byte 3:
                              * MIDI bytes into the engine (count 1-3) */
 #define CMD_CRASH       31  /* (written by a crashing SH-2, see crt0.s) */
 
-#define BUF_NAME        0       /* 64 bytes */
-#define BUF_DATA        64
+#define BUF_NAME        0       /* 256 bytes: a path inside MIDI_PATCHES */
+#define BUF_DATA        256
 #define BUF_SIZE        2048    /* largest patch file we read */
 
 /* Register shadow layout */

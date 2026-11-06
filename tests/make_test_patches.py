@@ -45,7 +45,11 @@ def y12(alg, fb, seed, name):
 
 (out / "Brass Section.tfi").write_bytes(tfi(4, 5, 1))
 (out / "E.Piano.tfi").write_bytes(tfi(5, 6, 2))
-(out / "Slap Bass.tfi").write_bytes(tfi(0, 7, 3))
+(out / "Bass").mkdir(exist_ok=True)
+(out / "Bass" / "Synth").mkdir(exist_ok=True)
+(out / "Bass" / "Slap Bass.tfi").write_bytes(tfi(0, 7, 3))
+(out / "Bass" / "Fretless.dmp").write_bytes(dmp(1, 2, 7))
+(out / "Bass" / "Synth" / "Acid.tfi").write_bytes(tfi(3, 5, 8))
 (out / "Organ_01.dmp").write_bytes(dmp(7, 0, 4))
 (out / "Strings [warm].dmp").write_bytes(dmp(2, 3, 5))
 (out / "Lead Saw.y12").write_bytes(y12(6, 4, 6, "Lead Saw"))

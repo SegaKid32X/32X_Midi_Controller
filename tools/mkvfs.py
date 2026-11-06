@@ -17,7 +17,8 @@ def main() -> int:
         print(__doc__)
         return 1
     rom = bytearray(Path(sys.argv[1]).read_bytes())
-    files = sorted(p for p in Path(sys.argv[3]).iterdir()
+    root = Path(sys.argv[3])
+    files = sorted(p for p in root.rglob("*")     # folders too: "Bass/Slap.tfi"
                    if p.is_file() and p.suffix.lower() in (".tfi", ".dmp", ".y12"))
     at = (len(rom) + 15) & ~15
     rom += b"\0" * (at - len(rom))
@@ -25,7 +26,10 @@ def main() -> int:
     data_at = at + len(head) + 40 * len(files)
     body = bytearray()
     for f in files:
-        name = f.name.encode("ascii")[:31].ljust(32, b"\0")
+        rel = f.relative_to(root).as_posix().encode("ascii")
+        if len(rel) > 31:
+            sys.exit(f"mkvfs: {rel!r} is too long (31 characters at most)")
+        name = rel.ljust(32, b"\0")
         blob = f.read_bytes()
         while (data_at + len(body)) % 4:
             body += b"\0"

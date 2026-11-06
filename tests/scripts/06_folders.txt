@@ -1,0 +1,26 @@
+# Folders inside MIDI_PATCHES: listed first, A opens one, B goes back up
+# (the cursor on the folder we came from); patches in folders load.
+# pad6
+run 300
+shot top_folder
+press a 4
+run 80
+shot in_bass
+press a 4
+run 80
+shot in_synth
+press down 4
+run 4
+press up 4
+run 60
+shot acid_loaded
+press b 4
+run 80
+shot back_in_bass
+press down 4
+run 40
+shot fretless_loaded
+press b 4
+run 80
+shot back_at_top
+telem
