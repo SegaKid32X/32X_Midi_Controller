@@ -17,8 +17,14 @@ static inline void ym_wait(void)
         ;
 }
 
+/* the voices that started a note since the screen last asked (CMD_MONITOR):
+ * bits 0-5 FM 1-6, 6-8 PSG tone 1-3, 9 noise */
+uint16_t mon_voices;
+
 void ym_write(int part, uint8_t reg, uint8_t val)
 {
+    if (!part && reg == 0x28 && (val & 0xF0) && (val & 3) != 3)    /* a key on */
+        mon_voices |= (uint16_t)(1u << ((val & 3) + (val & 4 ? 3 : 0)));
     ym_wait();
     if (part) {
         YM_A1 = reg;
@@ -55,6 +61,8 @@ void psg_write(uint8_t b)
     int ch = (psg_latch >> 5) & 3;
     uint8_t *p = shadow + SH_PSG;
     if (psg_latch & 0x10) {                 /* volume */
+        if ((b & 15) != 15 && (b & 15) < p[8 + ch])     /* louder: a note */
+            mon_voices |= (uint16_t)(1u << (6 + ch));
         p[8 + ch] = b & 15;
     } else if (ch == 3) {                   /* noise control */
         p[12] = b & 7;

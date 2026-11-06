@@ -368,6 +368,40 @@ static int to_pwm(int mch)
     return 1;
 }
 
+/* ------------------------------------------------------------ the monitor */
+
+/* What came in, for the screen's MIDI monitor (CMD_MONITOR). The preview note
+ * (X on the home screen) is left out: midi_quiet is set while it goes in. */
+int midi_quiet;
+uint16_t mon_chans, mon_count;
+uint8_t mon_last[6];                    /* status, data 1, data 2, length */
+uint8_t mon_ch[16][3];                  /* last note (0xFF: none yet), its velocity
+                                         * (0: let go), keys down */
+
+static void monitor(uint8_t st, uint8_t a, uint8_t b, int len)
+{
+    int mch = st & 15;
+    mon_chans |= (uint16_t)(1u << mch);
+    mon_count++;
+    mon_last[0] = st;
+    mon_last[1] = a;
+    mon_last[2] = b;
+    mon_last[3] = (uint8_t)len;
+    uint8_t *c = mon_ch[mch];
+    int on = (st & 0xF0) == 0x90 && b;
+    if (on) {
+        c[0] = a;
+        c[1] = b;
+        if (c[2] < 255) c[2]++;
+    } else if ((st & 0xF0) == 0x80 || (st & 0xF0) == 0x90) {
+        if (c[0] == a) c[1] = 0;
+        if (c[2]) c[2]--;
+    } else if ((st & 0xF0) == 0xB0 && (a == 123 || a == 120)) {   /* all notes off */
+        c[1] = 0;
+        c[2] = 0;
+    }
+}
+
 /* ------------------------------------------------------------ the parser */
 
 static uint8_t status, data[2], ndata, need;
@@ -376,6 +410,7 @@ void midi_init(void)
 {
     status = 0;
     ndata = 0;
+    for (int i = 0; i < 16; i++) { mon_ch[i][0] = 0xFF; mon_ch[i][1] = mon_ch[i][2] = 0; }
 }
 
 void midi_reset_voices(void)
@@ -403,6 +438,7 @@ void midi_byte(uint8_t b)
     if (ndata < need) return;
     ndata = 0;
     int mch = status & 15;
+    if (!midi_quiet) monitor(status, data[0], need > 1 ? data[1] : 0, need + 1);
     if (to_pwm(mch)) {
         ev_push(status, data[0], need > 1 ? data[1] : 0);
         return;

@@ -121,6 +121,27 @@ int main(void)
     CHECK(ev_ring[(uint8_t)(h0 + 1)][0] == 0xBA && ev_ring[(uint8_t)(h0 + 1)][2] == 90, "the CC");
     CHECK(chip[0][0x28] == 0x55, "nothing on the YM2612");
 
+    /* the monitor: channels heard, the last key per channel, the preview left out */
+    midi_init();
+    mon_chans = 0;
+    send(0x92, 64, 90);
+    CHECK(mon_chans == 1 << 2, "channel 3 heard: %04X", mon_chans);
+    CHECK(mon_ch[2][0] == 64 && mon_ch[2][1] == 90 && mon_ch[2][2] == 1, "ch3 key %d %d %d",
+          mon_ch[2][0], mon_ch[2][1], mon_ch[2][2]);
+    CHECK(mon_last[0] == 0x92 && mon_last[1] == 64 && mon_last[2] == 90 && mon_last[3] == 3, "last message");
+    send(0x82, 64, 0);
+    CHECK(mon_ch[2][0] == 64 && mon_ch[2][1] == 0 && mon_ch[2][2] == 0, "ch3 let go");
+    CHECK(mon_ch[0][0] == 0xFF, "ch1 nothing yet");
+    mon_chans = 0;
+    midi_quiet = 1;
+    send(0x90, 60, 110);
+    send(0x80, 60, 0);
+    midi_quiet = 0;
+    CHECK(mon_chans == 0 && mon_ch[0][0] == 0xFF, "the preview is not monitored");
+    uint16_t n0 = mon_count;
+    send(0xE5, 0, 64);
+    CHECK(mon_count == n0 + 1 && mon_chans == 1 << 5 && mon_last[3] == 3, "bend counted");
+
     printf(fails ? "test_midi: %d failure(s)\n" : "ok   MIDI engine: notes, CCs, bend, PSG, POLY, pedal%.0d\n", fails);
     return fails != 0;
 }

@@ -1,0 +1,28 @@
+# The MIDI lights and the monitor: a stock GenMDM key on (FM 1) lights
+# channel 1 at the top; START, DOWN, DOWN, A opens the MIDI monitor.
+run 300
+gm 0A4 22
+gm 0A0 69
+gm 028 F0
+run 4
+shot monitor_lights
+gm 028 00
+run 30
+press start 4
+run 10
+press down 4
+run 4
+press down 4
+run 10
+shot monitor_menu
+press a 4
+run 10
+gm 028 F1
+run 4
+shot monitor_page
+gm 028 01
+run 40
+press b 4
+run 20
+shot monitor_back
+telem

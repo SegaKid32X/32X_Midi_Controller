@@ -167,8 +167,26 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
         midi_reset_voices();
         return 0;
     case CMD_MIDI:              /* MIDI bytes from the 32X (the preview note) */
+        midi_quiet = 1;
         for (int k = 0; k < (p1 >> 8) && k < 3; k++)
             midi_byte((uint8_t)(k == 0 ? p1 : k == 1 ? p2 >> 8 : p2));
+        midi_quiet = 0;
+        return 0;
+    case CMD_MONITOR:
+        if (p1 == 0) {
+            COMM16(C_P1) = mon_chans;
+            COMM16(C_P2) = mon_voices;
+            COMM16(C_P3) = mon_count;
+            mon_chans = mon_voices = 0;
+        } else if (p1 == 1) {
+            put6(mon_last);     /* (bytes 4-5: whatever follows; unused) */
+        } else if (p1 < 10) {
+            int c = (p1 - 2) * 2;
+            for (int k = 0; k < 3; k++) { b[k] = mon_ch[c][k]; b[3 + k] = mon_ch[c + 1][k]; }
+            put6(b);
+        } else {
+            return ERR_RANGE;
+        }
         return 0;
     case CMD_SETTING: {
         uint8_t *s = (uint8_t *)&ms;

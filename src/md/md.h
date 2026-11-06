@@ -54,6 +54,7 @@ void psg_write(uint8_t b);
 void snd_silence(void);
 void act_bump(void);            /* tell the screen the sound changed */
 void flags_publish(void);       /* md_flags -> C_FLAGS */
+extern uint16_t mon_voices;     /* voices that started a note (CMD_MONITOR) */
 
 /* md_midi.c: the MIDI engine (with our Teensy firmware) */
 #define MODE_GENMDM 0
@@ -70,6 +71,9 @@ extern midi_settings_t ms;
 void midi_init(void);
 void midi_byte(uint8_t b);
 void midi_reset_voices(void);
+extern int midi_quiet;          /* 1: leave these bytes out of the monitor */
+extern uint16_t mon_chans, mon_count;
+extern uint8_t mon_last[6], mon_ch[16][3];
 extern uint8_t ev_ring[256][3];
 
 /* md_drums.c: the drum kit (WAVs in MIDI_DRUMS, into cartridge memory) */

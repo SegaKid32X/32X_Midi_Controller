@@ -80,6 +80,16 @@
                              * MIDI_PATCHES ("" = MIDI_PATCHES itself) */
 #define CMD_MIDI        14  /* P1 = count << 8 | byte 1, P2 = byte 2 << 8 | byte 3:
                              * MIDI bytes into the engine (count 1-3) */
+#define CMD_MONITOR     19  /* what came in, for the MIDI monitor. P1 = 0: P1 =
+                             * the MIDI channels heard since the last ask (bit
+                             * n: channel n + 1), P2 = the voices that started
+                             * a note (bits 0-5 FM 1-6, 6-8 PSG 1-3, 9 noise),
+                             * P3 = messages so far (wraps); both masks clear.
+                             * P1 = 1: the last message, P1 = status << 8 |
+                             * byte 1, P2 = byte 2 << 8 | its length.
+                             * P1 = 2-9: channels (P1-2)*2 and +1, 3 bytes each:
+                             * last note (0xFF none), its velocity (0: let go),
+                             * keys down */
 #define CMD_CRASH       31  /* (written by a crashing SH-2, see crt0.s) */
 
 #define BUF_NAME        0       /* 320 bytes: a path inside MIDI_PATCHES */
