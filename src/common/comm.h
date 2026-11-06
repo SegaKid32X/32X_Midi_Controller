@@ -82,8 +82,8 @@
                              * MIDI bytes into the engine (count 1-3) */
 #define CMD_CRASH       31  /* (written by a crashing SH-2, see crt0.s) */
 
-#define BUF_NAME        0       /* 256 bytes: a path inside MIDI_PATCHES */
-#define BUF_DATA        256
+#define BUF_NAME        0       /* 320 bytes: a path inside MIDI_PATCHES */
+#define BUF_DATA        320
 #define BUF_SIZE        2048    /* largest patch file we read */
 
 /* Register shadow layout */

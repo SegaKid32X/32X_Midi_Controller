@@ -3,9 +3,9 @@
 #include "hw.h"
 #include "lib.h"
 
-int lib_count;
+int lib_count, lib_skipped;
 char lib_path[PATH_MAX_];
-static char pool[40000];
+static char pool[60000];
 static uint16_t name_at[LIB_MAX];
 static uint8_t dir_of[LIB_MAX];
 uint8_t shadow_copy[528];
@@ -16,6 +16,7 @@ int lib_scan(void)
     int r = md_cmd(CMD_SCAN, 0, 0, 0);
     if (r) return -r;
     int n = md_p(C_P1);
+    lib_skipped = md_p(C_P2);
     if (n > LIB_MAX) n = LIB_MAX;
     int used = 0;
     for (int i = 0; i < n; i++) {
@@ -33,7 +34,7 @@ int lib_scan(void)
             if (off + 6 >= total || len >= NAME_MAX) break;
         }
         name[len] = 0;
-        if (used + len + 1 > (int)sizeof pool) break;
+        if (used + len + 1 > (int)sizeof pool) { lib_skipped += n - i; break; }
         dir_of[lib_count] = (uint8_t)is_dir;
         name_at[lib_count++] = (uint16_t)used;
         memcpy(pool + used, name, (size_t)len + 1);

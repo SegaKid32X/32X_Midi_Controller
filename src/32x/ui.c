@@ -287,6 +287,12 @@ static void draw_library(void)
             gfx_text_n(6, y, lib_name(i), 30, i == cursor ? COL_HI : COL_TEXT);
         }
     }
+    if (lib_skipped) {                          /* files we could not list */
+        char t[48], *o = fmt_num(t, lib_skipped);
+        strcpy(o, " FILES LEFT OUT: NAMES TOO LONG/TOO MANY");
+        gfx_rect(0, LIST_Y + LIST_ROWS * CHAR_H, 194, CHAR_H, COL_BG);
+        gfx_text_n(4, LIST_Y + LIST_ROWS * CHAR_H, t, 31, COL_ORANGE);
+    }
     if (lib_count > LIST_ROWS) {                /* the scroll bar */
         int h = LIST_ROWS * CHAR_H;
         int bar = h * LIST_ROWS / lib_count;
@@ -389,7 +395,7 @@ static void library_input(uint16_t p)
         return;
     }
     if ((p & PAD_A) && lib_is_dir(cursor)) {
-        if (lib_enter(cursor) < 0) say("CANNOT OPEN THAT FOLDER");
+        if (lib_enter(cursor) < 0) say("COULD NOT OPEN THAT FOLDER (SD CARD)");
         cursor = top = 0;
         load_timer = -1;
         dirty = 1;

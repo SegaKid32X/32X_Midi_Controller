@@ -111,6 +111,7 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
             return (unsigned)n;
         }
         COMM16(C_P1) = (uint16_t)n;
+        COMM16(C_P2) = (uint16_t)files_skipped;
         return 0;
     }
     case CMD_NAME: {

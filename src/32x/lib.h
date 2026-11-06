@@ -7,11 +7,12 @@
 #include "patch.h"
 
 #define LIB_MAX     999
-#define NAME_MAX    75
+#define NAME_MAX    127
 
 #define PATH_MAX_   160
 
 extern int lib_count;
+extern int lib_skipped;                 /* patch files the 68000 left out */
 extern char lib_path[PATH_MAX_];        /* the folder shown, inside MIDI_PATCHES ("" = the top) */
 int  lib_scan(void);                    /* count (>= 0) or -ERR_* */
 int  lib_cd(const char *path);          /* show another folder (and scan it) */

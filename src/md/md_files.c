@@ -8,7 +8,7 @@
  */
 #include "md.h"
 
-#define POOL_BYTES  24576
+#define POOL_BYTES  40960
 
 uint8_t file_buf[BUF_SIZE];
 static char pool[POOL_BYTES];
@@ -19,7 +19,8 @@ static int count, used;
 static int from_vfs;
 static char folder[] = "/MIDI_PATCHES";     /* (in RAM: md_ed.c reads it with RV = 1) */
 static char sub[160];                   /* the folder shown, inside it ("" = the top) */
-static char path[256];                  /* folder / sub / name */
+static char path[320];                  /* folder / sub / name */
+int files_skipped;                      /* patch files left out (names too long, too many) */
 
 static int lower(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
 static int slen(const char *s) { int n = 0; while (s[n]) n++; return n; }
@@ -49,7 +50,7 @@ void files_cd(void)
 
 static int add(const char *name, int len, int dir, int vfs_i)
 {
-    if (count >= MAX_FILES || used + len + 1 > POOL_BYTES) return 0;
+    if (count >= MAX_FILES || used + len + 1 > POOL_BYTES) { files_skipped++; return 0; }
     for (int i = 0; i < count; i++)         /* (a folder seen already) */
         if (dir && is_dir_of[i]) {
             const char *a = pool + name_at[i];
@@ -106,6 +107,7 @@ static void make_dir_path(void)
 int files_scan(void)
 {
     count = used = 0;
+    files_skipped = 0;
     from_vfs = 0;
     if (!(md_flags & FL_ED)) {
         set_flag(FL_ED, ed_detect());
@@ -117,18 +119,23 @@ int files_scan(void)
     }
     make_dir_path();
     int total = ed_dir_open(path);
-    if (total < 0) return 0;            /* no folder yet: no patches (saving makes it) */
+    if (total < 0)                      /* MIDI_PATCHES itself missing: no patches yet */
+        return sub[0] ? ERR_SD : 0;     /* (saving makes it); a folder in it: an error */
     for (int pass = 0; pass < 2; pass++)    /* folders first, then files */
-        for (int i = 0; i < total && count < MAX_FILES; i++) {
+        for (int i = 0; i < total; i++) {
             char name[256];
             int is_dir;
             rx_poll();
-            if (ed_dir_entry(i, name, sizeof name, &is_dir)) return ERR_SD;
-            if (name[0] == '.') continue;
+            if (ed_dir_entry(i, name, sizeof name, &is_dir)) {
+                files_skipped += total - i;     /* (keep what we have) */
+                break;
+            }
+            if (name[0] == '.') continue;   /* (hidden, and macOS's "._" files) */
             int len = slen(name);
-            if (len > 74) continue;
-            if (is_dir && pass == 0) add(name, len, 1, 0);
-            else if (!is_dir && pass == 1 && is_patch(name)) add(name, len, 0, 0);
+            int wanted = (is_dir && pass == 0) || (!is_dir && pass == 1 && is_patch(name));
+            if (!wanted) continue;
+            if (len > 127) { files_skipped++; continue; }
+            add(name, len, is_dir, 0);
         }
     return count;
 }

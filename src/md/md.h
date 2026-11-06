@@ -98,6 +98,7 @@ int  file_save(uint16_t len);
 int  file_delete(void);
 int  file_is_dir(int i);
 void files_cd(void);            /* the folder at BUF_NAME (inside MIDI_PATCHES) */
+extern int files_skipped;
 
 /* md_ed.c: the Mega EverDrive (runs from work RAM with RV = 1) */
 int  ed_detect(void);                   /* 1 if it answers */

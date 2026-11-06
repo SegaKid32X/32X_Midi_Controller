@@ -200,7 +200,12 @@ int RAM ed_dir_open(const char *path)
     cmd_tx(CMD_F_DIR_LD);
     fifo_wr8(DIR_OPT_SORTED);
     tx_string(path);
-    if (!check_status()) {
+    /* the EverDrive reads and sorts the whole folder before it answers: a big
+     * one (hundreds of long names) takes seconds, so wait up to ~15 s here */
+    spin_limit = 6000000;
+    int st = check_status();
+    spin_limit = 600000;
+    if (!st) {
         uint8_t b[2];
         cmd_tx(CMD_F_DIR_SIZE);
         if (!fifo_rd(b, 2))
