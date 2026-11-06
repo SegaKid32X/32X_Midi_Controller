@@ -1,5 +1,5 @@
-/* synth.c - the 32X's own voices, through its PWM: the drum kit (and, next,
- * software FM).
+/* synth.c - the 32X's own voices, through its PWM: software FM on MIDI
+ * channels 11-14 (fm.c) and the drum kit on 16.
  *
  * MIDI channels 11-16 come here instead of the Mega Drive's chips: the
  * 68000's engine queues their messages, the master SH-2 fetches them
@@ -17,6 +17,7 @@
 #include "hw.h"
 #include "audio.h"
 #include "synth.h"
+#include "fm.h"
 
 #define RATE        22050
 #define BLOCK       64
@@ -39,6 +40,8 @@ typedef struct {
     volatile int nsmp;
     volatile int8_t by_note[128];
     volatile int volume;        /* 0-10 */
+    fm_patch pch[FM_CHANNELS];  /* the FM channels' patches (the master writes) */
+    volatile int pver[FM_CHANNELS];
     volatile int reload;        /* the master changed the samples: purge the cache */
 } shared_t;
 
@@ -149,6 +152,28 @@ int synth_load_drums(const char *kit)
     return synth_count;
 }
 
+void synth_set_patch(int ch, const fm_patch *p)
+{
+    shared_t *sh = SH;
+    sh->pch[ch] = *p;
+    sh->pver[ch] = sh->pver[ch] + 1;
+}
+
+void synth_get_patch(int ch, fm_patch *p)
+{
+    *p = SH->pch[ch];
+}
+
+const fm_patch *fm_patch_of(int ch)
+{
+    return &SH->pch[ch];
+}
+
+int fm_patch_version(int ch)
+{
+    return SH->pver[ch];
+}
+
 int synth_note_of(int i)
 {
     return i >= 0 && i < synth_count ? SH->smp[i].note : -1;
@@ -202,6 +227,14 @@ static void drum_on(int note, int vel)
 static void event(const volatile uint8_t *e)
 {
     int st = e[0] & 0xF0, ch = e[0] & 15;
+    if (ch >= 10 && ch < 10 + FM_CHANNELS) {        /* MIDI 11-14: software FM */
+        int c = ch - 10;
+        if (st == 0x90 && e[2]) fm_note_on(c, e[1], e[2]);
+        else if (st == 0x80 || st == 0x90) fm_note_off(c, e[1]);
+        else if (st == 0xB0) fm_control(c, e[1], e[2]);
+        else if (st == 0xE0) fm_bend(c, e[1] | e[2] << 7);
+        return;
+    }
     if (st == 0x90 && e[2] && ch == DRUM_CH) drum_on(e[1], e[2]);
     else if (st == 0xB0) {
         if (e[1] == 7) ch_volume[ch] = e[2];
@@ -240,6 +273,7 @@ static void render(void)
         }
         v->pos = pos;
     }
+    fm_render(acc, BLOCK);
     int vol = sh->volume;                           /* 0-10 */
     for (int k = 0; k < BLOCK * 2; k++) {
         int32_t x = acc[k] * vol / 10;
@@ -253,6 +287,7 @@ static void synth_job(int arg)
     shared_t *sh = SH;
     for (int i = 0; i < NVOICE; i++) voice[i].smp = -1;
     for (int c = 0; c < 16; c++) { ch_volume[c] = 100; ch_pan[c] = 64; }
+    fm_reset();
     for (;;) {
         if (sh->reload) {                           /* new samples in the cartridge */
             sh->reload = 0;
@@ -273,6 +308,11 @@ static void synth_job(int arg)
 void synth_start(void)
 {
     SH->volume = 8;
+    for (int c = 0; c < FM_CHANNELS; c++) {
+        fm_patch p;
+        patch_default(&p);
+        synth_set_patch(c, &p);
+    }
     SH->head = SH->tail = 0;
     for (int i = 0; i < 128; i++) SH->by_note[i] = -1;
     audio_init(RATE);

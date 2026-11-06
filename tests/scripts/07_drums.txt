@@ -15,6 +15,14 @@ run 4
 press c 4
 run 4
 press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
 run 30
 shot drums_target
 audiomark

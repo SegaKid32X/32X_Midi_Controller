@@ -68,7 +68,9 @@ $(OBJ)/font.h: tools/gen_font.py tools/font5x7.py | $(OBJ)
 	python3 tools/gen_font.py $@
 $(OBJ)/crt0.o: src/32x/crt0.s $(OBJ)/md.bin src/32x/icd_mars.bin
 	$(AS) --big -I$(OBJ) $< -o $@
-$(OBJ)/sh/%.o: src/32x/%.c $(HEADERS) $(OBJ)/font.h | $(OBJ)/sh
+$(OBJ)/synth_tables.h: tools/gen_synth_tables.py | $(OBJ)
+	python3 tools/gen_synth_tables.py $@
+$(OBJ)/sh/%.o: src/32x/%.c $(HEADERS) $(OBJ)/font.h $(OBJ)/synth_tables.h | $(OBJ)/sh
 	$(CC) $(SHFLAGS) $< -o $@
 $(OBJ)/sh/patch.o: src/common/patch.c src/common/patch.h | $(OBJ)/sh
 	$(CC) $(SHFLAGS) $< -o $@

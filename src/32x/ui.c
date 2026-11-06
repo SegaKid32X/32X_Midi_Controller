@@ -22,16 +22,18 @@ enum { SCR_LIBRARY, SCR_EDITOR };
 enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS };
 
 #define ALL_CH      6
-#define DRUMS_T     7           /* the 32X's drum kit (MIDI channel 16) */
-#define NTARGET     8
+#define PWM_T       7           /* 7-10: the 32X's FM channels (MIDI 11-14) */
+#define DRUMS_T     11          /* the 32X's drum kit (MIDI channel 16) */
+#define NTARGET     12
+#define NSLOT       10          /* voices with a patch: YM 1-6, 32X 11-14 */
 #define LIST_ROWS   19
 #define LIST_Y      22
 
 static int screen = SCR_LIBRARY, overlay = OV_NONE;
 static int cursor, top, target;         /* target 0-5, or ALL_CH */
 static int load_timer = -1;
-static char chan_path[6][PATH_MAX_ + NAME_MAX + 2];   /* the file each channel came from ("": none) */
-static int chan_edited[6];
+static char chan_path[NSLOT][PATH_MAX_ + NAME_MAX + 2];   /* the file each slot came from ("": none) */
+static int chan_edited[NSLOT];
 static fm_patch voice;                  /* the voice shown (the editor's channel) */
 static int ed_row, ed_col, save_choice, menu_choice, set_row;
 #define SET_PWM_VOL SET_COUNT     /* (kept here: the 32X's own setting) */
@@ -64,7 +66,34 @@ static void say_err(const char *what, int e)
     say(t);
 }
 
-static int shown_ch(void) { return target >= ALL_CH ? 0 : target; }
+/* the slot shown: YM channels 0-5, the 32X's FM channels 6-9 */
+static int shown_ch(void)
+{
+    if (target >= PWM_T && target < PWM_T + 4) return target - 1;
+    return target >= ALL_CH ? 0 : target;
+}
+
+static int is_pwm_slot(int slot) { return slot >= 6; }
+
+static void slot_read(int slot, fm_patch *p)
+{
+    if (is_pwm_slot(slot)) synth_get_patch(slot - 6, p);
+    else voice_read(slot, p);
+}
+
+static void slot_apply(int slot, const fm_patch *p)
+{
+    if (is_pwm_slot(slot)) synth_set_patch(slot - 6, p);
+    else voice_apply(slot, p);
+}
+
+/* C: the next target (the editor skips the drums) */
+static int next_target(int t, int editor)
+{
+    t = (t + 1) % NTARGET;
+    if (editor && t == DRUMS_T) t = 0;
+    return t;
+}
 
 /* ------------------------------------------------------------ input */
 
@@ -94,7 +123,10 @@ static uint16_t read_buttons(void)
 
 /* ------------------------------------------------------------ drawing helpers */
 
-static const char *const ch_names[NTARGET] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6", "ALL", "DRUMS" };
+static const char *const ch_names[NTARGET] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6", "ALL",
+                                                "32X 11", "32X 12", "32X 13", "32X 14", "DRUMS" };
+static const char *const slot_names[NSLOT] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6",
+                                              "32X 11", "32X 12", "32X 13", "32X 14" };
 static int drum_pick;                   /* X on DRUMS: the sample it plays next */
 
 static void header(const char *title)
@@ -203,8 +235,8 @@ static void apply_to_target(const fm_patch *p, const char *rel)
             set_origin(c, rel);
         }
     } else {
-        voice_apply(target, p);
-        set_origin(target, rel);
+        slot_apply(shown_ch(), p);
+        set_origin(shown_ch(), rel);
     }
 }
 
@@ -268,7 +300,7 @@ static void draw_library(void)
     gfx_rect(px - 4, 16, SCREEN_W - px + 4, SCREEN_H - 32, COL_PANEL);
     gfx_text(px, 20, "TARGET", COL_DIM);
     gfx_text(px + 42, 20, ch_names[target], COL_HI);
-    gfx_text(px + 80, 20, "C", COL_DIM);
+    gfx_text(SCREEN_W - 10, 20, "C", COL_DIM);
     if (target == DRUMS_T) {                    /* the kit, note by note */
         if (!synth_count) {
             gfx_text(px, 40, "NO DRUM SAMPLES", COL_HI);
@@ -325,8 +357,8 @@ static void library_input(uint16_t p)
     if (cursor < top) top = cursor;
     if (cursor >= top + LIST_ROWS) top = cursor - LIST_ROWS + 1;
     if (p & PAD_C) {
-        target = (target + 1) % NTARGET;
-        voice_read(shown_ch(), &voice);
+        target = next_target(target, 0);
+        slot_read(shown_ch(), &voice);
         dirty = 1;
     }
     if (p & PAD_START) {
@@ -366,7 +398,7 @@ static void library_input(uint16_t p)
     if (p & PAD_A) {
         screen = SCR_EDITOR;
         ed_row = ed_col = 0;
-        voice_read(shown_ch(), &voice);
+        slot_read(shown_ch(), &voice);
         dirty = 1;
     }
     if ((p & PAD_Y) && lib_count) {
@@ -497,7 +529,8 @@ static void draw_editor(void)
                       (algs[voice.alg].carriers >> i & 1) ? COL_ORANGE : COL_GREEN);
         gfx_num(ex + 54, ey + 2, i + 1, COL_DIM);
     }
-    gfx_text(186, 190, "ORANGE: CARRIER  GREEN: MOD", COL_DIM);
+    gfx_text(186, 190, "ORANGE: CARRIERS", COL_DIM);
+    gfx_text(186, 199, "GREEN: MODULATORS", COL_DIM);
     footer("A/B VALUE  X/Z 10  C CHAN  START SAVE  Y BACK");
 }
 
@@ -506,8 +539,8 @@ static void voice_changed(void)
     if (target == ALL_CH) {
         for (int c = 0; c < 6; c++) { voice_apply(c, &voice); chan_edited[c] = 1; }
     } else {
-        voice_apply(target, &voice);
-        chan_edited[target] = 1;
+        slot_apply(shown_ch(), &voice);
+        chan_edited[shown_ch()] = 1;
     }
     dirty = 1;
 }
@@ -555,8 +588,8 @@ static void editor_input(uint16_t p)
     if (p & PAD_X) editor_change(+10);
     if (p & PAD_Z) editor_change(-10);
     if (p & PAD_C) {
-        target = (target + 1) % 7;
-        voice_read(shown_ch(), &voice);
+        target = next_target(target, 1);
+        slot_read(shown_ch(), &voice);
         dirty = 1;
     }
     if (p & PAD_START) {
@@ -625,7 +658,7 @@ static void draw_save(void)
     char t[80];
     panel(20, 70, 280, 74);
     gfx_text(30, 78, "SAVE THE VOICE OF", COL_HI);
-    gfx_text(30 + 18 * CHAR_W, 78, ch_names[ch], COL_HI);
+    gfx_text(30 + 18 * CHAR_W, 78, slot_names[ch], COL_HI);
     const char *opt[4] = { "OVERWRITE ", "NEW .TFI FILE", "NEW .DMP FILE", "NEW .Y12 FILE" };
     for (int i = 0; i < 4; i++) {
         int y = 92 + i * 11;
@@ -698,7 +731,7 @@ static void overlay_input(uint16_t p)
             int e = lib_delete(name);
             overlay = OV_NONE;
             if (e) { say_err("COULD NOT DELETE:", e); break; }
-            for (int c = 0; c < 6; c++)
+            for (int c = 0; c < NSLOT; c++)
                 if (!strcmp(chan_path[c], name)) chan_path[c][0] = 0;
             lib_scan();
             if (cursor >= lib_count) cursor = lib_count - 1;
@@ -738,7 +771,7 @@ static void draw_menu(void)
 }
 
 static const char *const set_names[NSET] = { "MODE", "POLY MIDI CHANNEL", "TUNING", "VELOCITY",
-                                             "STEREO SPREAD", "32X VOLUME (DRUMS)" };
+                                             "STEREO SPREAD", "32X VOLUME (CH 11-16)" };
 static const uint8_t set_max[NSET] = { 1, 15, 1, 1, 1, 10 };
 
 static void settings_fetch(void)
@@ -834,6 +867,7 @@ static void preview(void)
     int down = (held_now & PAD_X) != 0;
     if (down && preview_note < 0) {
         int mch = settings[SET_MODE] ? settings[SET_POLY_CH] : (target == ALL_CH ? 0 : target);
+        if (target >= PWM_T && target < PWM_T + 4) mch = 10 + target - PWM_T;   /* MIDI 11-14 */
         int note = 60;
         if (target == DRUMS_T) {                /* the kit: each sample in turn */
             if (!synth_count) return;
@@ -927,12 +961,14 @@ void ui_frame(void)
         last_act = act;
         fm_patch now;
         uint8_t lfo = shadow_byte(0x22);
+        if (is_pwm_slot(shown_ch())) { act_timer = 0; last_act = act; goto no_refresh; }
         voice_read(shown_ch(), &now);
         if (memcmp(&now, &voice, sizeof now) || lfo != shadow_byte(0x22)) {
             voice = now;
             dirty = 1;
         }
     }
+no_refresh:
     if (message_timer > 0 && --message_timer == 0)
         dirty = 1;
     static uint16_t last_flags;

@@ -47,8 +47,21 @@ console does, which brings:
 - **Velocity** (a piano-like curve), the **sustain pedal**, pitch bend,
   NTSC/PAL tuning: START on the home screen, Settings.
 - **A handshake**: every MIDI byte arrives, even while the SD card is busy.
-- **The 32X's own sound (PWM)** on MIDI channels 11-16: a **drum kit** from
-  WAV files on channel 16 (below), and software FM voices (coming).
+- **The 32X's own sound (PWM)** on MIDI channels 11-16: **software FM** on
+  11-14 (6 more voices playing the same patch files) and a **drum kit** from
+  WAV files on 16 (below).
+
+## The 32X's FM voices (MIDI channels 11-14, our firmware)
+
+Six more FM voices, computed by the 32X's second SH-2 the way the YM2612
+works (its eight algorithms, feedback, its envelopes and rates, TL, MUL,
+detune) and mixed into the 32X's PWM output. Each of channels 11-14 has its
+own patch and plays chords (the six voices are shared). On the home screen,
+C until the target says `32X 11` ... `32X 14`: choosing a patch loads it
+there, A edits it, START saves it, X plays middle C. Velocity, pitch bend,
+CC 7, CC 10 and the sustain pedal work. Not yet: SSG-EG and the LFO on these
+voices. They sound close to the YM2612, but cleaner (the 32X has no 9-bit
+DAC).
 
 ## Drums (MIDI channel 16, our firmware)
 

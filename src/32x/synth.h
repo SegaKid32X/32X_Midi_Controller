@@ -9,4 +9,7 @@ void synth_poll(void);                  /* fetch the 68000's events (call often)
 int  synth_load_drums(const char *kit); /* the WAVs in MIDI_DRUMS (kit: a folder in it, or 0) */
 int  synth_note_of(int i);
 void synth_set_volume(int v);           /* 0-10 */
+#include "patch.h"
+void synth_set_patch(int ch, const fm_patch *p);    /* the FM channel ch (0-3: MIDI 11-14) */
+void synth_get_patch(int ch, fm_patch *p);
 #endif

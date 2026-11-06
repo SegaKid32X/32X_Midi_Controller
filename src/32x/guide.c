@@ -125,6 +125,17 @@ static const page_t pages[] = {
         "SPREAD AND THE TUNING.",
         "" },
       PAD_X, "TRY IT: PRESS X" },
+    { "THE 32X'S OWN FM VOICES", {
+        "MIDI CHANNELS 11-14 PLAY THROUGH THE",
+        "32X'S OWN SOUND (PWM) WITH SOFTWARE FM:",
+        "6 MORE VOICES, THE SAME PATCH FILES.",
+        "C TO 32X 11 ... 32X 14 ON THE HOME",
+        "SCREEN: LOAD, EDIT, SAVE AND X HEAR AS",
+        "FOR THE MEGA DRIVE'S CHANNELS. EACH OF",
+        "THOSE CHANNELS PLAYS CHORDS.",
+        "NEEDS THE NEW TEENSY FIRMWARE.",
+        "(NOT YET: SSG-EG AND THE LFO HERE.)" },
+      0, 0 },
     { "DRUMS ON THE 32X", {
         "PUT .WAV DRUM SAMPLES IN A FOLDER CALLED",
         "MIDI_DRUMS ON THE SD CARD. THEY PLAY ON",

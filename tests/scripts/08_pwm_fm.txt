@@ -1,0 +1,41 @@
+# The 32X's software FM: C to "32X 11", a patch loads into it, X plays it
+# through the PWM (and it stops), the editor works on it.
+# pad6
+run 300
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 20
+press down 4
+run 4
+press down 4
+run 60
+shot pwm_target
+audiomark
+run 20
+quiet 150
+hold x
+run 8
+audiomark
+run 30
+loud 300
+shot pwm_note
+release x
+run 150
+audiomark
+run 30
+quiet 150
+press a 4
+run 40
+shot text_pwm_editor
+telem
