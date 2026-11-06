@@ -103,7 +103,8 @@ extern int files_skipped;
 /* md_ed.c: the Mega EverDrive (runs from work RAM with RV = 1) */
 int  ed_detect(void);                   /* 1 if it answers */
 int  ed_dir_open(const char *path);     /* sorted listing -> entry count, or -1 */
-int  ed_dir_entry(int i, char *name, int max, int *is_dir);   /* 0 or -1 */
+int  ed_dir_entry(int i, char *name, int max, int *is_dir);   /* 0 or -1; *is_dir -1: hidden */
+int  junk_name(const char *n);  /* a file or folder computers leave behind (md_files.c) */
 int  ed_read_file(const char *path, uint8_t *dst, int max, uint16_t *len);
 int  ed_write_file(const char *path, const uint8_t *src, int len);
 int  ed_delete(const char *path);

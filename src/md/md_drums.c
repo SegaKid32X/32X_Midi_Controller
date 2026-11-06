@@ -127,7 +127,7 @@ int drums_scan(void)
         int is_dir;
         rx_poll();
         if (ed_dir_entry(i, name, sizeof name, &is_dir)) break;
-        if (is_dir || name[0] == '.' || !is_wav(name)) continue;
+        if (is_dir || junk_name(name) || !is_wav(name)) continue;    /* (incl. hidden, ._) */
         int pl = 0;
         static char fpath[300];
         for (const char *f = dpath; *f; f++) fpath[pl++] = *f;

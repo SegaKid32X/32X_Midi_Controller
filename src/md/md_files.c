@@ -25,6 +25,21 @@ int files_skipped;                      /* patch files left out (names too long,
 static int lower(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
 static int slen(const char *s) { int n = 0; while (s[n]) n++; return n; }
 
+/* What macOS (and Windows) leave on a card: dot files (._name.tfi copies,
+ * .DS_Store, .Spotlight-V100, .Trashes, .fseventsd), __MACOSX folders from
+ * unzipping, System Volume Information. Never listed. */
+int junk_name(const char *n)
+{
+    if (n[0] == '.') return 1;
+    static const char *const junk[2] = { "__MACOSX", "System Volume Information" };
+    for (int j = 0; j < 2; j++) {
+        const char *a = junk[j], *b = n;
+        while (*a && lower(*a) == lower(*b)) { a++; b++; }
+        if (!*a && !*b) return 1;
+    }
+    return 0;
+}
+
 /* .tfi .dmp .y12 (any case) */
 static int is_patch(const char *n)
 {
@@ -76,6 +91,19 @@ static int scan_vfs(void)
             uint16_t len;
             vfs_file(i, &name, &len);
             if (name[0] == '!') continue;   /* (the test drums) */
+            {                               /* macOS's leftovers, at any depth */
+                const char *c = name;
+                int bad = 0;
+                while (*c && !bad) {
+                    char part[48];
+                    int k = 0;
+                    while (*c && *c != '/' && k < 47) part[k++] = *c++;
+                    part[k] = 0;
+                    if (*c == '/') c++;
+                    bad = junk_name(part);
+                }
+                if (bad) continue;
+            }
             if (sl) {                       /* inside sub/ ? */
                 int k = 0;
                 while (k < sl && name[k] == sub[k]) k++;
@@ -130,7 +158,7 @@ int files_scan(void)
                 files_skipped += total - i;     /* (keep what we have) */
                 break;
             }
-            if (name[0] == '.') continue;   /* (hidden, and macOS's "._" files) */
+            if (is_dir < 0 || junk_name(name)) continue;    /* hidden, macOS's leftovers */
             int len = slen(name);
             int wanted = (is_dir && pass == 0) || (!is_dir && pass == 1 && is_patch(name));
             if (!wanted) continue;

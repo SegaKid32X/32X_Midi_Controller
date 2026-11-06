@@ -231,6 +231,8 @@ int RAM ed_dir_entry(int i, char *name, int max, int *is_dir)
     uint8_t resp, info[9];
     if (!fifo_rd(&resp, 1) && !resp && !fifo_rd(info, 9) && !rx_name(name, max)) {
         *is_dir = (info[8] & AT_DIR) != 0;
+        if (info[8] & 0x06)                 /* FAT hidden or system: skip it */
+            *is_dir = -1;
         r = 0;
     }
     rv_off();

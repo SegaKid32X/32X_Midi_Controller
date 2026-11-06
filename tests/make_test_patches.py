@@ -50,6 +50,11 @@ def y12(alg, fb, seed, name):
 (out / "Bass" / "Slap Bass.tfi").write_bytes(tfi(0, 7, 3))
 (out / "Bass" / "Fretless.dmp").write_bytes(dmp(1, 2, 7))
 (out / "Bass" / "Synth" / "Acid.tfi").write_bytes(tfi(3, 5, 8))
+# what a Mac leaves behind: none of it may show
+(out / "._E.Piano.tfi").write_bytes(b"\0\x05\x16\x07" + bytes(38))
+(out / "Bass" / "._Fretless.dmp").write_bytes(bytes(51))
+(out / "__MACOSX").mkdir(exist_ok=True)
+(out / "__MACOSX" / "._Lead.tfi").write_bytes(bytes(42))
 (out / "Organ_01.dmp").write_bytes(dmp(7, 0, 4))
 (out / "Strings [warm].dmp").write_bytes(dmp(2, 3, 5))
 (out / "Lead Saw.y12").write_bytes(y12(6, 4, 6, "Lead Saw"))
