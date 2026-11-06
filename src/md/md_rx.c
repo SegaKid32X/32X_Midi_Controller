@@ -95,6 +95,9 @@ void rx_take(uint8_t v)
 
 uint16_t rx_bytes, rx_errors;           /* for the monitor: bytes from the Teensy
                                          * (not its keepalives), damaged ones */
+uint8_t rx_pins[6];                     /* the Teensy's pins it saw move (its pin watch:
+                                         * 0xF4, port << 3 | bit; ports B C D E F) */
+static uint8_t pin_next;
 
 static void custom_nibble(uint8_t v)
 {
@@ -105,6 +108,12 @@ static void custom_nibble(uint8_t v)
     } else if (have_hi) {
         have_hi = 0;
         uint8_t b = (uint8_t)(hi_nib << 4 | (v & 15));
+        if (pin_next) {
+            pin_next = 0;
+            if (b < 40) rx_pins[b >> 3] |= (uint8_t)(1u << (b & 7));
+            return;
+        }
+        if (b == 0xF4) { pin_next = 1; return; }
         if (b == 0xF9) rx_errors++;     /* (our firmware: the MIDI jack got a bad byte) */
         else if (b != 0xFE) rx_bytes++;
         midi_byte(b);

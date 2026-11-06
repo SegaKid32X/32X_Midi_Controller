@@ -180,6 +180,8 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
             mon_chans = mon_voices = 0;
         } else if (p1 == 1) {
             put6(mon_last);     /* (bytes 4-5: whatever follows; unused) */
+        } else if (p1 == 11) {
+            put6(rx_pins);
         } else if (p1 == 10) {
             COMM16(C_P1) = rx_bytes;
             COMM16(C_P2) = rx_errors;

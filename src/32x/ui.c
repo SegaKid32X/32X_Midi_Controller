@@ -830,6 +830,7 @@ static uint8_t mon_ch[16][3];           /* last note (0xFF none), velocity (0 le
 static uint8_t mon_last[4];             /* status, byte 1, byte 2, length */
 static int mon_timer;
 static uint16_t mon_bytes, mon_errors;
+static uint8_t mon_pins[6];
 
 static int monitor_fetch(void)          /* 1: something changed */
 {
@@ -849,6 +850,12 @@ static int monitor_fetch(void)          /* 1: something changed */
                   || nb != mon_bytes || ne != mon_errors;
     mon_bytes = nb;
     mon_errors = ne;
+    md_cmd(CMD_MONITOR, 11, 0, 0);
+    uint16_t w[3] = { md_p(C_P1), md_p(C_P2), md_p(C_P3) };
+    uint8_t pins[6];
+    for (int j = 0; j < 6; j++) pins[j] = (uint8_t)(j & 1 ? w[j >> 1] : w[j >> 1] >> 8);
+    if (memcmp(pins, mon_pins, sizeof pins)) changed = 1;
+    memcpy(mon_pins, pins, sizeof pins);
     memcpy(mon_ch, ch, sizeof ch);
     memcpy(mon_last, last, sizeof last);
     return changed;
@@ -921,6 +928,19 @@ static void draw_monitor(void)
     const char *const *n = midi ? n_midi : link == LINK_STOCK ? n_stock : n_none;
     for (int i = 0; n[i]; i++) gfx_text(px, 20 + i * 10, n[i], i == 0 && !midi ? COL_HI : COL_TEXT);
     if (midi) {
+        /* the Teensy's pin watch: the pins that moved (the MIDI jack: D2) */
+        gfx_text(px, 126, "TEENSY PINS MOVING:", COL_DIM);
+        o = t;
+        for (int k = 0; k < 5; k++)
+            for (int b = 0; b < 8; b++)
+                if (mon_pins[k] >> b & 1 && o < t + 16) {
+                    *o++ = "BCDEF"[k];
+                    *o++ = (char)('0' + b);
+                    *o++ = ' ';
+                }
+        if (o == t) o = put_str(t, "NONE");
+        *o = 0;
+        gfx_text(px, 136, t, o == t + 4 && t[0] == 'N' ? COL_DIM : COL_ORANGE);
         o = put_str(t, "BYTES ");
         o = fmt_num(o, mon_bytes);
         *o = 0;

@@ -95,7 +95,22 @@ static void push(uint8_t b)
     r_head = next;
 }
 
-static uint8_t led_off;                         /* frames the LED stays off (activity) */
+static uint8_t led_off;                         /* 30 ms steps the LED stays off (activity) */
+
+/* ---- the pin watch (a diagnostic): every pin we do not use, to see which
+ * one the MIDI jack moves. Reported to the console as 0xF4, port << 3 | bit
+ * (port 0-4: B C D E F); its MIDI monitor shows them. */
+static const uint8_t watch_mask[5] = { 0x70, 0xC0, 0xBC, 0x40, 0xF3 };
+static uint8_t pin_prev[5], pin_moved[5];
+
+static void pins_watch(void)
+{
+    uint8_t v[5] = { PINB, PINC, PIND, PINE, PINF };
+    for (uint8_t k = 0; k < 5; k++) {
+        pin_moved[k] |= (uint8_t)((v[k] ^ pin_prev[k]) & watch_mask[k]);
+        pin_prev[k] = v[k];
+    }
+}
 
 static void poll_inputs(void)
 {
@@ -103,7 +118,7 @@ static void poll_inputs(void)
     while (UCSR1A & (1 << RXC1)) {
         uint8_t st = UCSR1A, b = UDR1;      /* (the status first) */
         push(st & ((1 << FE1) | (1 << DOR1)) ? 0xF9 : b);   /* 0xF9: a damaged byte */
-        led_off = 1;
+        led_off = 5;
     }
     /* USB: 4-byte event packets (cable/code index, then up to 3 bytes) */
     if (!usb_configuration) return;
@@ -125,7 +140,7 @@ static void poll_inputs(void)
         if (k >= 1) push(b1);
         if (k >= 2) push(b2);
         if (k >= 3) push(b3);
-        led_off = 1;
+        led_off = 5;
     }
 }
 
@@ -166,7 +181,8 @@ int main(void)
     DDRB = 0x8F;                                /* PB0-3, PB7 out */
     PORTB = 0x00;
     DDRD = 0x41;                                /* PD0 (TH), PD6 (LED) out */
-    PORTD = 0x02 | 0x04;                        /* pull-ups on PD1 (TR) and PD2 (MIDI in) */
+    PORTD = 0x02 | 0xBC;                        /* pull-ups: PD1 (TR), PD2 (MIDI in), the rest watched */
+    PORTB |= 0x70; PORTC |= 0xC0; PORTE |= 0x40; PORTF |= 0xF3;     /* (pull-ups: the pin watch) */
     UBRR1 = 31;                                 /* 16 MHz / 16 / 32 = 31250 baud */
     UCSR1A = 0;
     UCSR1C = 0x06;                              /* 8N1 */
@@ -180,14 +196,26 @@ int main(void)
     uint16_t t_hello = t_now(), t_ack = 0, t_idle = t_now();
     uint8_t ack_ms = 0;                         /* (2 s counted in steps of 200 ms) */
     uint16_t t_led = t_now();
+    uint8_t pin_steps = 0;
+    pins_watch();
+    for (uint8_t k = 0; k < 5; k++) pin_moved[k] = 0;
 
     for (;;) {
         poll_inputs();
+        pins_watch();
 
         if (t_since(t_led) > MS(30)) {          /* the LED: on when linked, off a moment for MIDI */
             t_led = t_now();
             if (linked && !led_off) PORTD |= 0x40; else PORTD &= (uint8_t)~0x40;
-            led_off = 0;
+            if (led_off) led_off--;
+            if (++pin_steps >= 33) {            /* about once a second: the pins that moved */
+                pin_steps = 0;
+                for (uint8_t k = 0; k < 5; k++) {
+                    for (uint8_t b = 0; b < 8; b++)
+                        if (linked && (pin_moved[k] >> b & 1)) { push(0xF4); push((uint8_t)(k << 3 | b)); }
+                    pin_moved[k] = 0;
+                }
+            }
         }
 
         if (!linked) {

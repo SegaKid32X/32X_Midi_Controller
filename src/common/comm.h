@@ -92,7 +92,9 @@
                              * keys down.
                              * P1 = 10: P1 = bytes from our Teensy firmware
                              * (keepalives left out), P2 = damaged bytes it
-                             * reported (0xF9) */
+                             * reported (0xF9).
+                             * P1 = 11: 5 bytes, the Teensy's pins that moved
+                             * (ports B C D E F, a bit each) */
 #define CMD_CRASH       31  /* (written by a crashing SH-2, see crt0.s) */
 
 #define BUF_NAME        0       /* 320 bytes: a path inside MIDI_PATCHES */
