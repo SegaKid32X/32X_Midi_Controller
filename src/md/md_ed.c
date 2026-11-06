@@ -40,6 +40,7 @@
 #define CMD_F_FWR    0xCC
 #define CMD_F_FCLOSE 0xCE
 #define CMD_F_FINFO  0xD0
+#define CMD_F_DIR_MK 0xD2
 #define CMD_F_DEL    0xD3
 
 #define STATUS_CMD_OK 0x02
@@ -311,6 +312,19 @@ int RAM ed_delete(const char *path)
     COMM16(C_FLAGS) |= FL_BUSY;
     rv_on();
     cmd_tx(CMD_F_DEL);
+    tx_string(path);
+    int e = check_status();
+    rv_off();
+    COMM16(C_FLAGS) &= (uint16_t)~FL_BUSY;
+    return e;
+}
+
+int RAM ed_mkdir(const char *path)
+{
+    if (!ed_ok) return ERR_STATUS;
+    COMM16(C_FLAGS) |= FL_BUSY;
+    rv_on();
+    cmd_tx(CMD_F_DIR_MK);
     tx_string(path);
     int e = check_status();
     rv_off();

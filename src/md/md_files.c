@@ -1,6 +1,7 @@
-/* md_files.c - the patch files: listing the SD card's root, loading, saving.
+/* md_files.c - the patch files: listing the SD card's MIDI_PATCHES folder,
+ * loading, saving.
  *
- * The list holds every .TFI, .DMP and .Y12 file in the root of the card, in
+ * The list holds every .TFI, .DMP and .Y12 file in /MIDI_PATCHES, in
  * the EverDrive's sorted order. Names are packed into one pool (they can be
  * long) so the SH-2 can ask for them a few bytes at a time. Test builds
  * without an EverDrive use patches built into the ROM instead (md_vfs.c).
@@ -14,7 +15,8 @@ static char pool[POOL_BYTES];
 static uint16_t name_at[MAX_FILES];
 static int count;
 static int from_vfs;
-static char path[80];               /* "/" + a name (also used by md_ed.c in RAM) */
+static char folder[] = "/MIDI_PATCHES";     /* (in RAM: md_ed.c reads it with RV = 1) */
+static char path[96];               /* the folder + "/" + a name */
 
 static int lower(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
 
@@ -47,9 +49,8 @@ int files_scan(void)
             return count;
         }
     }
-    static char root[] = "/";
-    int total = ed_dir_open(root);
-    if (total < 0) return ERR_SD;
+    int total = ed_dir_open(folder);
+    if (total < 0) return 0;            /* no folder yet: no patches (saving makes it) */
     for (int i = 0; i < total && count < MAX_FILES; i++) {
         char name[256];
         int is_dir;
@@ -88,6 +89,7 @@ int file_name_len(int i)
 static void make_path(const char *name)
 {
     int k = 0;
+    for (const char *f = folder; *f; f++) path[k++] = *f;
     path[k++] = '/';
     while (*name && k < (int)sizeof path - 1) path[k++] = *name++;
     path[k] = 0;
@@ -117,6 +119,7 @@ int file_save(uint16_t len)
     if (len > BUF_SIZE - BUF_DATA) return ERR_TOO_BIG;
     file_buf[BUF_DATA - 1] = 0;
     make_path((const char *)file_buf + BUF_NAME);
+    (void)ed_mkdir(folder);             /* (an error if it is there already) */
     return ed_write_file(path, file_buf + BUF_DATA, len);
 }
 

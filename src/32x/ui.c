@@ -3,7 +3,7 @@
  * LIBRARY  UP/DOWN choose a patch (it loads into the target channel a moment
  *          after you stop: you hear it at once), LEFT/RIGHT a page,
  *          C the target channel (1-6 or ALL), A the editor, Y delete,
- *          MODE (or B on a 3-button pad) the controls.
+ *          START the guide, MODE (or B on a 3-button pad) the controls.
  * EDITOR   the D-pad moves, A/B change the value (held: faster), X/Z by 10,
  *          C the channel, START save, Y back, MODE the controls.
  *
@@ -15,9 +15,10 @@
 #include "gfx.h"
 #include "lib.h"
 #include "ui.h"
+#include "guide.h"
 
 enum { SCR_LIBRARY, SCR_EDITOR };
-enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE };
+enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE };
 
 #define ALL_CH      6
 #define LIST_ROWS   19
@@ -207,8 +208,9 @@ static void draw_library(void)
     header("32X MIDI CONTROLLER");
     if (!lib_count) {
         gfx_text(16, 60, "NO PATCH FILES FOUND", COL_HI);
-        gfx_text(16, 76, "PUT .TFI .DMP OR .Y12 FILES IN THE ROOT", COL_TEXT);
-        gfx_text(16, 88, "OF THE SD CARD.  START: LOOK AGAIN", COL_TEXT);
+        gfx_text(16, 76, "PUT .TFI .DMP OR .Y12 FILES IN THE FOLDER", COL_TEXT);
+        gfx_text(16, 88, "MIDI_PATCHES ON THE SD CARD.", COL_TEXT);
+        gfx_text(16, 104, "A: LOOK AGAIN    START: THE GUIDE", COL_TEXT);
     }
     for (int r = 0; r < LIST_ROWS && top + r < lib_count; r++) {
         int i = top + r, y = LIST_Y + r * CHAR_H;
@@ -240,7 +242,7 @@ static void draw_library(void)
         gfx_num(px + 12, 104 + i * 20, i + 1, COL_DIM);
         draw_envelope(px + 22, 100 + i * 20, 92, 17, &voice.op[i], COL_ORANGE);
     }
-    footer(lib_count ? "UP/DN PATCH  C CHANNEL  A EDIT  MODE HELP" : "START: LOOK AGAIN");
+    footer(lib_count ? "UP/DN PATCH  C CHAN  A EDIT  START GUIDE" : "A: LOOK AGAIN   START: GUIDE");
 }
 
 static void library_input(uint16_t p)
@@ -263,8 +265,15 @@ static void library_input(uint16_t p)
         voice_read(shown_ch(), &voice);
         dirty = 1;
     }
-    if ((p & PAD_START) && !lib_count) {
+    if (p & PAD_START) {
+        guide_open();
+        overlay = OV_GUIDE;
+        dirty = 1;
+        return;
+    }
+    if ((p & PAD_A) && !lib_count) {
         ui_rescan();
+        return;
     }
     if (p & PAD_A) {
         screen = SCR_EDITOR;
@@ -491,6 +500,7 @@ static void draw_help(void)
         "C           TARGET CHANNEL 1-6 / ALL",
         "A           EDIT THE TARGET'S VOICE",
         "Y           DELETE THE PATCH FILE",
+        "START       THE GUIDE (HOW IT ALL WORKS)",
         "",
         "EDITOR",
         "D-PAD       CHOOSE A SETTING",
@@ -506,7 +516,7 @@ static void draw_help(void)
     int n = (int)(sizeof lines / sizeof lines[0]);
     panel(20, 14, 280, n * CHAR_H + 10);
     for (int i = 0; i < n; i++) {
-        int head = i == 0 || i == 2 || i == 9 || i == n - 1;
+        int head = i == 0 || i == 2 || i == 10 || i == n - 1;
         gfx_text(30, 20 + i * CHAR_H, lines[i], head ? COL_HI : COL_TEXT);
     }
 }
@@ -578,6 +588,12 @@ static void do_save(void)
 static void overlay_input(uint16_t p)
 {
     switch (overlay) {
+    case OV_GUIDE: {
+        int redraw = 0;
+        if (!guide_input(p, &redraw)) { overlay = OV_NONE; dirty = 1; }
+        else if (redraw) dirty = 1;
+        break;
+    }
     case OV_HELP:
         if (p) { overlay = OV_NONE; dirty = 1; }
         break;
@@ -614,6 +630,12 @@ static void overlay_input(uint16_t p)
 
 void ui_draw(void)
 {
+    if (overlay == OV_GUIDE) {
+        guide_draw();
+        gfx_present();
+        dirty = 0;
+        return;
+    }
     if (screen == SCR_LIBRARY) draw_library();
     else draw_editor();
     if (overlay == OV_HELP) draw_help();
@@ -627,7 +649,7 @@ void ui_rescan(void)
 {
     gfx_clear(COL_BG);
     header("32X MIDI CONTROLLER");
-    gfx_text(16, 60, "LOOKING FOR PATCHES ON THE SD CARD...", COL_TEXT);
+    gfx_text(16, 60, "LOOKING FOR PATCHES IN MIDI_PATCHES...", COL_TEXT);
     gfx_present();
     int n = lib_scan();
     if (n < 0) {

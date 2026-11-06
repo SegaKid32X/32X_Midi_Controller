@@ -69,6 +69,7 @@ int  ed_dir_entry(int i, char *name, int max, int *is_dir);   /* 0 or -1 */
 int  ed_read_file(const char *path, uint8_t *dst, int max, uint16_t *len);
 int  ed_write_file(const char *path, const uint8_t *src, int len);
 int  ed_delete(const char *path);
+int  ed_mkdir(const char *path);
 
 /* md_vfs.c: patches built into the ROM (tests, no EverDrive) */
 int  vfs_scan(void);                    /* count, 0 if none */

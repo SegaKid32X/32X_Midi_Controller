@@ -4,14 +4,16 @@ A GenMDM front end for the **Sega 32X** with a **Mega EverDrive PRO**: your
 GenMDM interface stays in controller port 2, and the 32X replaces the GenMDM
 cartridge with a full on-screen instrument editor.
 
-- **Patch library:** every `.TFI`, `.DMP` and `.Y12` file in the root of the SD
-  card. Choosing one loads it into the target channel (1-6, or all six) at once.
+- **Patch library:** every `.TFI`, `.DMP` and `.Y12` file in the SD card's
+  `MIDI_PATCHES` folder (made on the first save if it is missing). Choosing one loads it into the target channel (1-6, or all six) at once.
 - **FM editor:** algorithm, feedback, pan, AMS/FMS, the LFO and every operator
   setting, with the algorithm drawn as a diagram and each operator's envelope
   as a graph. Changes are heard immediately.
 - **Live view:** what the GenMDM (or a DAW behind it) changes shows on screen.
 - **Save and delete** on the SD card: overwrite, or a new `.TFI`, `.DMP` or
   `.Y12` file (`newpatch001.tfi` ...).
+- **A guide built in:** START on the home screen, a page per topic, with the
+  pad drawn and the button to try lit up.
 - Works with the GenMDM's **original Teensy firmware**. Replacement firmware
   that sends raw MIDI (for POLY mode, the 32X's extra PWM voices and drums) is
   in progress (`teensy/`).
@@ -28,7 +30,7 @@ cartridge with a full on-screen instrument editor.
 | C | target channel 1-6 / ALL | next channel |
 | X / Z | | value up / down by 10 |
 | Y | delete the patch file | back to the library |
-| START | | save |
+| START | the guide | save |
 | MODE | the controls panel | the controls panel |
 
 ## Building

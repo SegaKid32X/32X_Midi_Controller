@@ -1,0 +1,26 @@
+# The guide: START opens it, the "try it" buttons tick and move on, LEFT/RIGHT
+# turn pages, B leaves.
+# pad6
+run 300
+press start 4
+run 20
+shot guide_welcome
+press right 4
+run 60
+shot guide_setup
+press right 4
+run 20
+press right 4
+run 20
+shot guide_choose
+press down 4
+run 10
+shot guide_choose_done
+run 60
+shot guide_target
+press left 4
+run 20
+press b 4
+run 30
+shot guide_closed
+telem
