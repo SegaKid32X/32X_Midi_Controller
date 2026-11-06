@@ -62,8 +62,13 @@ _start:
         .endm
 
         jump    0x880800                /* reset -> resident program */
-        .rept   46
+        .rept   24
         call    0x880840                /* the return address names the vector */
+        .endr
+        jump    0x880880                /* vector 26, level 2: the external interrupt
+                                           (TH on port 2: the GenMDM's strobe) */
+        .rept   21
+        call    0x880840
         .endr
         .org    0x3C0
 

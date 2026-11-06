@@ -60,14 +60,17 @@ static char path_root[] = "/";
 
 /* ---- RV ---- */
 
+/* With RV = 1 the 68000's vectors come from the cartridge's Mega Drive
+ * table, not the 32X's: no interrupts meanwhile (the GenMDM's strobe would
+ * jump into the boot code). */
 static void RAM rv_on(void)
 {
-    __asm__ volatile ("bset #0,0xA15107" ::: "memory", "cc");
+    __asm__ volatile ("move.w #0x2700,%%sr\n\tbset #0,0xA15107" ::: "memory", "cc");
 }
 
 static void RAM rv_off(void)
 {
-    __asm__ volatile ("bclr #0,0xA15107" ::: "memory", "cc");
+    __asm__ volatile ("bclr #0,0xA15107\n\tmove.w #0x2100,%%sr" ::: "memory", "cc");
 }
 
 /* ---- the FIFO ---- */

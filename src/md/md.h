@@ -47,6 +47,8 @@ void psg_write(uint8_t b);
 void snd_silence(void);
 
 /* md_rx.c: port 2 (the GenMDM interface) */
+extern uint8_t rx_ring[256];
+extern volatile uint8_t rx_head;
 void rx_init(void);
 void rx_poll(void);             /* call as often as possible */
 

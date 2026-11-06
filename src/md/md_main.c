@@ -177,6 +177,7 @@ void md_main(int boot_err)
     while (COMM32(0x0) != M_OK || COMM32(0x4) != S_OK)
         rx_poll();
     COMM32(0x0) = 0;            /* release the master: its first command is seq 1 */
+    __asm__ volatile ("move.w #0x2100,%sr");   /* the GenMDM's strobe interrupt (level 2) */
 
     last_ack = 0;
     unsigned last_seq = 0;

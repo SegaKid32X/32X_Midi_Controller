@@ -30,6 +30,24 @@ exception:
         jsr     md_fatal                | never returns
 2:      bra.b   2b
 
+| 0x880880: the external interrupt (level 2), straight from the jump table
+| (entry 25, see src/32x/crt0.s). A GenMDM strobes TH (port 2, pin 7) for
+| each nibble it sends and holds the nibble 18 us either side: we catch it
+| into a ring here, wherever the main loop is, and md_rx.c decodes it later.
+        .org    0x80
+        .global ext_irq
+ext_irq:
+        move.l  a0,-(sp)
+        move.l  d0,-(sp)
+        moveq   #0,d0
+        move.b  rx_head,d0
+        lea     rx_ring,a0
+        move.b  0xA10005,0(a0,d0.w)
+        addq.b  #1,rx_head
+        move.l  (sp)+,d0
+        move.l  (sp)+,a0
+        rte
+
 init:
         bcs.b   0f                      | test the carry before anything clears it
         moveq   #0,d7                   | boot block verdict: 0 = OK
