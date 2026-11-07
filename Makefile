@@ -4,6 +4,8 @@
 #
 #   make            rom/midi32x.32x          the program (patches from the SD card)
 #   make test-rom   rom/midi32x-test.32x     with test patches built in (emulator)
+#   make md         rom/midimd.bin           the Genesis / Mega Drive alone (no 32X)
+#   make md-test    rom/midimd-test.bin      the same with test patches built in
 #   make check      ROM checks + host tests (+ PicoDrive if tests/emu has it)
 #   make clean
 #
@@ -44,8 +46,8 @@ HEADERS := $(wildcard src/32x/*.h src/common/*.h src/include/*.h)
 
 MARKERS := --title "32X MIDI CONTROLLER" --marker "32X MIDI CONTROLLER"
 
-.PHONY: all test-rom check clean host-test
-all: $(ROM)
+.PHONY: all test-rom check clean host-test md md-test
+all: $(ROM) $(MDROM)
 
 $(OBJ) $(OBJ)/sh $(OBJ)/md $(OBJ)/host rom:
 	mkdir -p $@
@@ -96,6 +98,36 @@ test-rom: $(OBJ)/$(TARGET).raw $(OBJ)/testpatches/stamp | rom
 	python3 tools/romfix.py $(TESTROM) --pow2 --gran 524288
 	python3 tests/verify_rom.py $(TESTROM) $(OBJ)/$(TARGET).elf $(MARKERS) --marker "PATFS@" --min-text 2048
 
+# ---- the Genesis-only build: no 32X, the screens on the 68000 too ----
+# (src/32x/ui.c guide.c lib.c over src/mdonly/: COMM in RAM, a tile canvas)
+MDROM     := rom/midimd.bin
+MDTESTROM := rom/midimd-test.bin
+MDO_SRC   := src/md/md_main.c src/md/md_rx.c src/md/md_snd.c src/md/md_midi.c \
+             src/md/md_files.c src/md/md_ed.c src/md/md_vfs.c \
+             src/32x/ui.c src/32x/guide.c src/32x/lib.c src/32x/libc_min.c src/common/patch.c \
+             src/mdonly/hw_md.c src/mdonly/gfx_md.c src/mdonly/synth_stub.c
+MDO_OBJS  := $(OBJ)/mdonly/crt.o $(patsubst %.c,$(OBJ)/mdonly/%.o,$(notdir $(MDO_SRC)))
+MDOFLAGS   = $(MDCFLAGS) -DMD_ONLY -Isrc/mdonly -Isrc/md -Isrc/32x \
+             -fno-delete-null-pointer-checks -fno-tree-loop-distribute-patterns
+vpath %.c src/md src/32x src/common src/mdonly
+$(OBJ)/mdonly:
+	mkdir -p $@
+$(OBJ)/mdonly/crt.o: src/mdonly/crt.s | $(OBJ)/mdonly
+	$(MDAS) -m68000 --register-prefix-optional $< -o $@
+$(OBJ)/mdonly/%.o: %.c $(HEADERS) $(wildcard src/mdonly/*.h) src/md/md.h $(OBJ)/font.h $(OBJ)/midi_tables.h | $(OBJ)/mdonly
+	$(MDCC) $(MDOFLAGS) -c $< -o $@
+$(OBJ)/midimd.bin: $(MDO_OBJS) src/mdonly/mdonly.ld
+	$(MDCC) -m68000 -nostdlib -T src/mdonly/mdonly.ld $(MDO_OBJS) -lgcc -o $(OBJ)/midimd.elf -Wl,-Map=$(OBJ)/midimd.map
+	$(MDOBJC) -O binary $(OBJ)/midimd.elf $@
+	@grep -E '^ +0x[0-9a-f]+ +__bss_end' $(OBJ)/midimd.map
+$(MDROM): $(OBJ)/midimd.bin | rom
+	cp $< $@
+	python3 tools/romfix.py $@ --pow2 --gran 131072
+md: $(MDROM)
+md-test: $(OBJ)/midimd.bin $(OBJ)/testpatches/stamp | rom
+	python3 tools/mkvfs.py $(OBJ)/midimd.bin $(MDTESTROM) $(OBJ)/testpatches
+	python3 tools/romfix.py $(MDTESTROM) --pow2 --gran 131072
+
 # ---- tests ----
 $(OBJ)/host/test_patch: tests/host/test_patch.c src/common/patch.c src/common/patch.h | $(OBJ)/host
 	$(HOSTCC) -O1 -g -std=c11 -Wall -Wextra -fsanitize=address,undefined -Isrc/common \
@@ -114,7 +146,7 @@ host-test: $(OBJ)/host/test_patch $(OBJ)/host/test_midi $(OBJ)/host/test_link
 tests/harness: tests/harness.c
 	$(HOSTCC) -O2 -std=c11 -Wall -o $@ $< -ldl -lm
 
-check: $(ROM) test-rom host-test tests/harness
+check: $(ROM) test-rom $(MDROM) md-test host-test tests/harness
 	@if [ -f tests/emu/picodrive_libretro.so ]; then python3 tests/run_tests.py; \
 	else echo "SKIP emulator tests: put picodrive_libretro.so in tests/emu (see tests/emu/README.md)"; fi
 

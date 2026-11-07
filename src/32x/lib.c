@@ -5,10 +5,34 @@
 
 int lib_count, lib_skipped;
 char lib_path[PATH_MAX_];
+uint8_t shadow_copy[528];
+
+#ifdef MD_ONLY
+/* (no 32X: the names are the 68000's own list, src/md/md_files.c) */
+int lib_scan(void)
+{
+    lib_count = 0;
+    int r = md_cmd(CMD_SCAN, 0, 0, 0);
+    if (r) return -r;
+    int n = md_p(C_P1);
+    lib_skipped = md_p(C_P2);
+    lib_count = n > LIB_MAX ? LIB_MAX : n;
+    return lib_count;
+}
+
+const char *lib_name(int i)
+{
+    return i >= 0 && i < lib_count ? file_name(i) : "";
+}
+
+int lib_is_dir(int i)
+{
+    return i >= 0 && i < lib_count && file_is_dir(i);
+}
+#else
 static char pool[60000];
 static uint16_t name_at[LIB_MAX];
 static uint8_t dir_of[LIB_MAX];
-uint8_t shadow_copy[528];
 
 int lib_scan(void)
 {
@@ -52,6 +76,7 @@ int lib_is_dir(int i)
 {
     return i >= 0 && i < lib_count && dir_of[i];
 }
+#endif
 
 void lib_rel(int i, char *out)
 {

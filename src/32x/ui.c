@@ -24,7 +24,13 @@ enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS, OV_
 #define ALL_CH      6
 #define PWM_T       7           /* 7-10: the 32X's FM channels (MIDI 11-14) */
 #define DRUMS_T     11          /* the 32X's drum kit (MIDI channel 16) */
+#ifdef MD_ONLY
+#define NTARGET     7           /* (no 32X: CH 1-6 and ALL) */
+#define APP_TITLE   "MD MIDI CONTROLLER"
+#else
 #define NTARGET     12
+#define APP_TITLE   "32X MIDI CONTROLLER"
+#endif
 #define NSLOT       10          /* voices with a patch: YM 1-6, 32X 11-14 */
 #define LIST_ROWS   19
 #define LIST_Y      22
@@ -37,8 +43,12 @@ static int chan_edited[NSLOT];
 static fm_patch voice;                  /* the voice shown (the editor's channel) */
 static int ed_row, ed_col, save_choice, menu_choice, set_row;
 #define SET_PWM_VOL SET_COUNT     /* (kept here: the 32X's own setting) */
+#ifdef MD_ONLY
+#define NSET        SET_COUNT
+#else
 #define NSET        (SET_COUNT + 1)
-static uint8_t settings[NSET];
+#endif
+static uint8_t settings[SET_COUNT + 1];
 static int preview_note = -1;           /* the note X is playing, or -1 */
 static void menu_input(uint16_t p);
 static void settings_input(uint16_t p);
@@ -108,8 +118,19 @@ static uint16_t read_buttons(void)
     uint16_t now = hw_pad();
     uint16_t pressed = now & (uint16_t)~held_prev;
     const uint16_t rep = PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_A | PAD_B;
+#ifdef MD_ONLY
+    /* (a redraw can take several frames here: count real frames) */
+    extern uint16_t md_vblanks(void);
+    static uint16_t last_t;
+    uint16_t t = md_vblanks();
+    int el = (uint16_t)(t - last_t);
+    last_t = t;
+    if (el < 1) el = 1;
+#else
+    const int el = 1;
+#endif
     if (now & rep & held_prev) {
-        if (--repeat_timer <= 0) {
+        if ((repeat_timer -= el) <= 0) {
             pressed |= now & rep;
             repeat_timer = 4;
         }
@@ -123,7 +144,7 @@ static uint16_t read_buttons(void)
 
 /* ------------------------------------------------------------ drawing helpers */
 
-static const char *const ch_names[NTARGET] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6", "ALL",
+static const char *const ch_names[12] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6", "ALL",
                                                 "32X 11", "32X 12", "32X 13", "32X 14", "DRUMS" };
 static const char *const slot_names[NSLOT] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6",
                                               "32X 11", "32X 12", "32X 13", "32X 14" };
@@ -301,7 +322,7 @@ static void load_cursor(void)
 static void draw_library(void)
 {
     gfx_clear(COL_BG);
-    header("32X MIDI CONTROLLER");
+    header(APP_TITLE);
     {                                           /* where we are */
         char where[PATH_MAX_ + 16] = "MIDI_PATCHES";
         if (lib_path[0]) { strcat(where, "/"); strcat(where, lib_path); }
@@ -876,6 +897,9 @@ static const char *chan_plays(int c)
     static const char *const psg[3] = { "PSG 1", "PSG 2", "PSG 3" };
     static const char *const pwm[4] = { "32X FM 11", "32X FM 12", "32X FM 13", "32X FM 14" };
     if (settings[SET_MODE] && c == settings[SET_POLY_CH]) return "FM 1-6 POLY";
+#ifdef MD_ONLY
+    if (c >= 10) return "-";
+#endif
     if (c < 6) return fm[c];
     if (c < 9) return psg[c - 6];
     if (c == 9) return "PSG NOISE";
@@ -992,9 +1016,9 @@ static void draw_monitor(void)
     footer("B: BACK");
 }
 
-static const char *const set_names[NSET] = { "MODE", "POLY MIDI CHANNEL", "TUNING", "VELOCITY",
+static const char *const set_names[SET_COUNT + 1] = { "MODE", "POLY MIDI CHANNEL", "TUNING", "VELOCITY",
                                              "STEREO SPREAD", "32X VOLUME (CH 11-16)" };
-static const uint8_t set_max[NSET] = { 1, 15, 1, 1, 1, 10 };
+static const uint8_t set_max[SET_COUNT + 1] = { 1, 15, 1, 1, 1, 10 };
 
 static void settings_fetch(void)
 {
@@ -1023,7 +1047,7 @@ static void draw_settings(void)
         }
         gfx_text(190, y, t, i == set_row ? COL_HI : COL_TEXT);
     }
-    static const char *const help[NSET] = {
+    static const char *const help[SET_COUNT + 1] = {
         "GENMDM: MIDI CH 1-6 PLAY FM 1-6.  POLY: ONE",
         "THE CHANNEL YOUR KEYBOARD SENDS ON (POLY)",
         "MATCH YOUR CONSOLE SO NOTES ARE IN TUNE",
@@ -1133,7 +1157,7 @@ void ui_draw(void)
 void ui_rescan(void)
 {
     gfx_clear(COL_BG);
-    header("32X MIDI CONTROLLER");
+    header(APP_TITLE);
     gfx_text(16, 60, "LOOKING FOR PATCHES IN MIDI_PATCHES...", COL_TEXT);
     gfx_present();
     int n = lib_scan();

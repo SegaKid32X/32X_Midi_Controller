@@ -8,7 +8,11 @@
  */
 #include "md.h"
 
+#ifdef MD_ONLY
+#define POOL_BYTES  9216        /* (the Genesis-only build: 64 KB of RAM holds the screen too) */
+#else
 #define POOL_BYTES  40960
+#endif
 
 uint8_t file_buf[BUF_SIZE];
 static char pool[POOL_BYTES];

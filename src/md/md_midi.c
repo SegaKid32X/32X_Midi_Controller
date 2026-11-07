@@ -349,7 +349,11 @@ static void control(int mch, int cc, int v)
 /* MIDI channels 11-16 belong to the 32X's PWM voices (drums, software FM):
  * their messages wait here for the master SH-2, which sees the head in
  * C_FLAGS' high byte and fetches them (CMD_EVENTS). 256 x 3 bytes. */
+#ifdef MD_ONLY
+uint8_t ev_ring[1][3];                  /* (no 32X: never used) */
+#else
 uint8_t ev_ring[256][3];
+#endif
 
 static void ev_push(uint8_t st, uint8_t a, uint8_t b)
 {
@@ -363,6 +367,10 @@ static void ev_push(uint8_t st, uint8_t a, uint8_t b)
 
 static int to_pwm(int mch)
 {
+#ifdef MD_ONLY
+    (void)mch;
+    return 0;                                   /* (no 32X: MIDI 11-16 play nothing) */
+#endif
     if (mch < 10) return 0;
     if (special3 && mch <= 12) return 0;        /* (channel 3 special mode has 11-13) */
     return 1;

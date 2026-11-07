@@ -23,6 +23,13 @@ cartridge with a full on-screen instrument editor.
 
 > Status: works in the PicoDrive emulator; not yet tested on a console.
 
+**No 32X?** `release/midimd.bin` is the same program for a Genesis / Mega
+Drive alone (with the Mega EverDrive PRO): the library, the editor, saving,
+the guide, the settings and the MIDI monitor, with the same Teensy firmware
+(or GenMDM's own). Without the 32X there is no 32X sound (MIDI channels 11-16
+play nothing), and the screen redraws more slowly (about 0.1-0.2 s), since the
+Genesis's 68000 draws it as well as running the sound and the port.
+
 ## Setting up
 
 1. GenMDM interface in controller port 2, a pad (6 buttons is best) in port 1.
@@ -105,7 +112,7 @@ avr-gcc); it uses PJRC's USB MIDI code (MIT).
 ## Building
 
 ```bash
-make            # rom/midi32x.32x
+make            # rom/midi32x.32x and rom/midimd.bin (the Genesis alone)
 make check      # ROM checks; host tests (patch formats, the MIDI engine,
                 # the Teensy link simulated); emulator tests
 make -C teensy  # teensy/midi32x.hex

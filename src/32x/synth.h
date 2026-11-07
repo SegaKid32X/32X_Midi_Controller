@@ -1,7 +1,11 @@
 /* synth.h - the 32X's own voices through the PWM (synth.c) */
 #ifndef SYNTH_H
 #define SYNTH_H
+#ifdef MD_ONLY
+#define MAX_SAMPLES 1                   /* (no 32X: src/mdonly/synth_stub.c) */
+#else
 #define MAX_SAMPLES 64
+#endif
 extern char synth_names[MAX_SAMPLES][24];
 extern int synth_count;
 void synth_start(void);                 /* the PWM and the slave's mixer */

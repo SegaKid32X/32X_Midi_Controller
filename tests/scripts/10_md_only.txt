@@ -1,0 +1,45 @@
+# rom: md
+# pad6
+# The Genesis-only build (no 32X): the library from the 68000's own screen,
+# a patch loads, the editor, the guide, a stock GenMDM note sounds and
+# lights channel 1, the MIDI monitor.
+run 240
+shot md_library
+press down 4
+run 60
+shot md_loaded
+audiomark
+run 20
+quiet 150
+gm 0A4 22
+gm 0A0 69
+gm 028 F0
+audiomark
+run 40
+loud 300
+shot md_note
+gm 028 00
+run 60
+press a 4
+run 40
+shot md_editor
+press y 4
+run 30
+press start 4
+run 30
+shot md_menu
+press a 4
+run 30
+shot md_guide
+press b 4
+run 20
+press start 4
+run 10
+press down 4
+run 4
+press down 4
+run 4
+press a 4
+run 60
+shot md_monitor
+telem

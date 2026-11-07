@@ -2,6 +2,10 @@
 #ifndef HW_H
 #define HW_H
 
+#ifdef MD_ONLY
+#include "../mdonly/hw.h"
+#else
+
 #include <stdint.h>
 #include "comm.h"
 
@@ -59,5 +63,7 @@ void hw_cache_purge(void);
 /* ---- timing: the free-running timer, 128 clocks (5.56 us) a tick ---- */
 void     hw_timer_init(void);
 uint16_t hw_ticks(void);
+
+#endif /* MD_ONLY */
 
 #endif

@@ -22,7 +22,11 @@
  */
 #include "md.h"
 
+#ifdef MD_ONLY
+#define RAM __attribute__((noinline))       /* (no 32X, no RV: it runs from the cartridge) */
+#else
 #define RAM __attribute__((section(".ramtext"), noinline))
+#endif
 
 #define ED_FIFO     (*(volatile uint8_t *)0xA130D1)
 #define ED_FSTAT    (*(volatile uint16_t *)0xA130D2)
@@ -65,6 +69,17 @@ static char path_root[] = "/";
 /* With RV = 1 the 68000's vectors come from the cartridge's Mega Drive
  * table, not the 32X's: no interrupts meanwhile (the GenMDM's strobe would
  * jump into the boot code). */
+#ifdef MD_ONLY
+static void RAM rv_on(void)
+{
+    __asm__ volatile ("move.w #0x2700,%%sr" ::: "memory", "cc");
+}
+
+static void RAM rv_off(void)
+{
+    __asm__ volatile ("move.w #0x2100,%%sr" ::: "memory", "cc");
+}
+#else
 static void RAM rv_on(void)
 {
     __asm__ volatile ("move.w #0x2700,%%sr\n\tbset #0,0xA15107" ::: "memory", "cc");
@@ -74,6 +89,7 @@ static void RAM rv_off(void)
 {
     __asm__ volatile ("bclr #0,0xA15107\n\tmove.w #0x2100,%%sr" ::: "memory", "cc");
 }
+#endif
 
 /* ---- the FIFO ---- */
 

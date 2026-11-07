@@ -16,9 +16,15 @@ typedef struct {
 
 static const page_t pages[] = {
     { "WELCOME", {
+#ifdef MD_ONLY
+        "THIS CARTRIDGE MAKES THE MEGA DRIVE THE",
+        "SCREEN FOR YOUR GENMDM: CHOOSE FM SOUNDS",
+        "FROM THE SD CARD, SHAPE THEM, SAVE THEM.",
+#else
         "THIS CARTRIDGE TURNS THE 32X INTO THE",
         "SCREEN FOR YOUR GENMDM: CHOOSE FM SOUNDS",
         "FROM THE SD CARD, SHAPE THEM, SAVE THEM.",
+#endif
         "",
         "THIS GUIDE SHOWS EVERYTHING, A PAGE AT A",
         "TIME. LIT BUTTONS ON THE PAD ARE THE ONES",
@@ -125,6 +131,7 @@ static const page_t pages[] = {
         "SPREAD AND THE TUNING.",
         "" },
       PAD_X, "TRY IT: PRESS X" },
+#ifndef MD_ONLY
     { "THE 32X'S OWN FM VOICES", {
         "MIDI CHANNELS 11-14 PLAY THROUGH THE",
         "32X'S OWN SOUND (PWM) WITH SOFTWARE FM:",
@@ -147,6 +154,7 @@ static const page_t pages[] = {
         "C TO THE DRUMS TARGET SHOWS THE KIT,",
         "X PLAYS EACH ONE. VOLUME: SETTINGS." },
       0, 0 },
+    #endif
     { "THE NEW TEENSY FIRMWARE", {
         "WITH GENMDM'S OWN FIRMWARE THE TEENSY",
         "DECIDES HOW MIDI PLAYS. OURS SENDS THE",

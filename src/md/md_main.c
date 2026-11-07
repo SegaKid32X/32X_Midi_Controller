@@ -82,7 +82,11 @@ static void put6(const uint8_t *p)
     COMM16(C_P3) = (uint16_t)(p[4] << 8 | p[5]);
 }
 
+#ifdef MD_ONLY
+unsigned md_run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
+#else
 static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
+#endif
 {
     uint8_t b[6];
     switch (cmd) {
@@ -122,6 +126,7 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
         put6(b);
         return (unsigned)((len > 127 ? 127 : len) | (file_is_dir(p1) ? 0x80 : 0));
     }
+#ifndef MD_ONLY
     case CMD_EVENTS: {
         uint8_t head = (uint8_t)(md_flags >> 8), at = (uint8_t)p1;
         int n = 0;
@@ -137,6 +142,7 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
     }
     case CMD_DRUM:
         return drum_info(p1, p2);
+#endif
     case CMD_CD:
         files_cd();
         return 0;
@@ -209,6 +215,71 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
 
 /* ------------------------------------------------------------ main */
 
+static int was_vb;
+static uint16_t vblanks;
+#ifdef MD_ONLY
+/* (no 32X: the screens can be busy for frames, so presses queue up rather
+ * than merge; src/mdonly/hw_md.c hands them over one at a time) */
+uint16_t pad_q[8], pad_held;
+uint8_t pad_qh, pad_qt;
+#endif
+uint16_t md_vblanks(void) { return vblanks; }
+#ifdef MD_ONLY
+extern uint16_t gfx_draw_frames, gfx_present_frames;
+#endif
+
+/* At each vblank: pad 1 (presses latched until the screens take them), the
+ * receiver's frame count, the test telemetry. 1: a new frame. */
+static int frame_tick(void)
+{
+    int vb = (VDP_CTRL & VDP_STATUS_VB) != 0;
+    int edge = vb && !was_vb;
+    was_vb = vb;
+    if (!edge) return 0;
+    uint16_t pad = pad_read();
+    uint16_t ack = COMM16(C_CMD) >> 8;
+    if (ack != last_ack) {      /* the screens took the latched presses */
+        last_ack = ack;
+        latched = 0;
+    }
+    latched |= pad & ~last_pad;
+#ifdef MD_ONLY
+    uint16_t nw = pad & ~last_pad;
+    if (nw && (uint8_t)(pad_qh - pad_qt) < 8) pad_q[pad_qh++ & 7] = nw;
+    pad_held = pad;
+#endif
+    last_pad = pad;
+    COMM16(C_PAD) = pad | latched;
+    if (!!(md_flags & FL_PAD3) != !pad6)
+        set_flag(FL_PAD3, !pad6);
+    vblanks++;
+    rx_frame();
+    /* test telemetry (tests/harness.c reads work RAM 0xFFFF00) */
+    volatile uint16_t *t = (volatile uint16_t *)0xFFFF00;
+    t[0] = 0x5354;
+    t[1] = COMM16(C_CMD);
+    t[2] = COMM16(C_P1);
+    t[3] = COMM16(C_P2);
+#ifdef MD_ONLY
+    t[2] = gfx_draw_frames;                 /* (frames the last redraw took: drawing, */
+    t[3] = gfx_present_frames;              /* showing) */
+#endif
+    t[4] = pad;
+    t[5] = vblanks;
+    t[6] = md_flags;
+    t[7] = act_count;
+    return 1;
+}
+
+#ifdef MD_ONLY
+/* (the screens' poll_hook: while they draw, the port and the pad go on) */
+static void md_poll(void)
+{
+    rx_poll();
+    frame_tick();
+}
+#endif
+
 #define M_OK 0x4D5F4F4Bu
 #define S_OK 0x535F4F4Bu
 
@@ -218,8 +289,10 @@ void md_main(int boot_err)
     PAD1_CTRL = 0x40;
     PAD1_DATA = 0x40;
     vdp_init();
+#ifndef MD_ONLY
     MARS16(0x04) = 0;           /* cartridge bank 0 in the 0x900000 window */
     MARS8(0x07) = 0;            /* RV = 0: the SH-2s may read the cartridge */
+#endif
     snd_init();
     if (VDP_CTRL & 1)           /* a PAL console: PAL tuning */
         ms.region = 1;
@@ -233,46 +306,33 @@ void md_main(int boot_err)
     COMM16(C_REPLY) = 0;
     COMM16(C_ACT) = 0;
 
+#ifndef MD_ONLY
     /* the 32X boot ROMs post M_OK / S_OK once they have loaded us */
     while (COMM32(0x0) != M_OK || COMM32(0x4) != S_OK)
         rx_poll();
     COMM32(0x0) = 0;            /* release the master: its first command is seq 1 */
+#endif
     __asm__ volatile ("move.w #0x2100,%sr");   /* the GenMDM's strobe interrupt (level 2) */
+#ifdef MD_ONLY
+    /* no 32X: the screens run here too (src/32x/ui.c over src/mdonly/), at
+     * each vblank; their commands are calls (md_run_command) */
+    poll_hook = md_poll;
+    ui_start();
+#endif
 
     last_ack = 0;
     unsigned last_seq = 0;
-    int was_vb = 0;
-    uint16_t vblanks = 0;
     for (;;) {
         rx_poll();
-        uint16_t st = VDP_CTRL;
-        int vb = (st & VDP_STATUS_VB) != 0;
-        if (vb && !was_vb) {
-            uint16_t pad = pad_read();
-            uint16_t ack = COMM16(C_CMD) >> 8;
-            if (ack != last_ack) {      /* the SH-2 took the latched presses */
-                last_ack = ack;
-                latched = 0;
-            }
-            latched |= pad & ~last_pad;
-            last_pad = pad;
-            COMM16(C_PAD) = pad | latched;
-            if (!!(md_flags & FL_PAD3) != !pad6)
-                set_flag(FL_PAD3, !pad6);
-            vblanks++;
-            rx_frame();
-            /* test telemetry (tests/harness.c reads work RAM 0xFFFF00) */
-            volatile uint16_t *t = (volatile uint16_t *)0xFFFF00;
-            t[0] = 0x5354;
-            t[1] = COMM16(C_CMD);
-            t[2] = COMM16(C_P1);
-            t[3] = COMM16(C_P2);
-            t[4] = pad;
-            t[5] = vblanks;
-            t[6] = md_flags;
-            t[7] = act_count;
-        }
-        was_vb = vb;
+#ifdef MD_ONLY
+        if (frame_tick())
+            ui_frame();
+#else
+        frame_tick();
+#endif
+#ifdef MD_ONLY
+        (void)last_seq;
+#else
 
         rx_poll();
         uint16_t c = COMM16(C_CMD);
@@ -288,5 +348,6 @@ void md_main(int boot_err)
             unsigned r = run_command((int)cmd, COMM16(C_P1), COMM16(C_P2), COMM16(C_P3));
             COMM16(C_REPLY) = (uint16_t)(seq << 8 | (r & 0xFF));
         }
+#endif
     }
 }

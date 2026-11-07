@@ -2,7 +2,8 @@
 """Emulator tests: boot the test ROMs in PicoDrive and drive them.
 
 Each tests/scripts/*.txt is run by tests/harness (a small libretro host). A
-line "# rom: plain" picks rom/midi32x.32x, else rom/midi32x-test.32x;
+line "# rom: plain" picks rom/midi32x.32x ("md": rom/midimd-test.bin, the
+Genesis-only build), else rom/midi32x-test.32x;
 "# pad6" plugs in a 6-button pad.
 Every screenshot must be lit and colourful (the black-screen guard; "text_"
 shots need only be lit, "allow_dark" ones neither), the
@@ -25,7 +26,8 @@ CORE = os.path.join(HERE, "emu", "picodrive_libretro.so")
 HARNESS = os.path.join(HERE, "harness")
 SCRIPTS = os.path.join(HERE, "scripts")
 OUT = os.path.join(HERE, "out")
-ROMS = {"test": "rom/midi32x-test.32x", "plain": "rom/midi32x.32x"}
+ROMS = {"test": "rom/midi32x-test.32x", "plain": "rom/midi32x.32x",
+        "md": "rom/midimd-test.bin", "mdplain": "rom/midimd.bin"}
 
 MIN_LIT = 0.08          # at least 8% of pixels not black
 MIN_COLOURS = 6

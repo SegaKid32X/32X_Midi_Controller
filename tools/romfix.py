@@ -23,7 +23,7 @@ def fix(path: str, title: str | None, gran: int, pow2: bool = False) -> int:
     with open(path, "rb") as f:
         data = bytearray(f.read())
 
-    if data[0x100:0x108] not in (b"SEGA 32X", b"SEGA SSF"):    # (SSF: a Mega EverDrive's mapper)
+    if data[0x100:0x108] not in (b"SEGA 32X", b"SEGA SSF", b"SEGA MEG", b"SEGA GEN"):    # (SSF: a Mega EverDrive's mapper)
         print(f"warning: {path} does not start its header with 'SEGA 32X' "
               f"at 0x100 (got {bytes(data[0x100:0x108])!r})", file=sys.stderr)
 

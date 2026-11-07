@@ -33,8 +33,13 @@
 /* 32X system registers, 68000 side */
 #define MARS8(o)    (*(volatile uint8_t *)(0xA15100 + (o)))
 #define MARS16(o)   (*(volatile uint16_t *)(0xA15100 + (o)))
+#ifdef MD_ONLY                  /* no 32X: the COMM words are RAM (src/mdonly/hw_md.c) */
+extern volatile uint16_t comm_regs[8];
+#define COMM16(o)   (comm_regs[(o) >> 1])
+#else
 #define COMM16(o)   (*(volatile uint16_t *)(0xA15120 + (o)))
 #define COMM32(o)   (*(volatile uint32_t *)(0xA15120 + (o)))
+#endif
 #define IRQ_OFF()   __asm__ volatile ("move.w #0x2700,%%sr" ::: "memory")
 #define IRQ_ON()    __asm__ volatile ("move.w #0x2100,%%sr" ::: "memory")
 #endif
@@ -43,6 +48,13 @@
 extern uint16_t md_flags;
 void set_flag(uint16_t f, int on);
 void md_fatal(int vector);
+#ifdef MD_ONLY
+unsigned md_run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3);
+void rx_poll(void);
+extern void (*poll_hook)(void);
+void ui_start(void);
+void ui_frame(void);
+#endif
 
 /* md_snd.c: the sound chips and their shadow */
 extern uint8_t shadow[SH_PSG + 16];
@@ -76,7 +88,11 @@ extern uint8_t rx_pins[6];
 extern int midi_quiet;          /* 1: leave these bytes out of the monitor */
 extern uint16_t mon_chans, mon_count;
 extern uint8_t mon_last[6], mon_ch[16][3];
+#ifdef MD_ONLY
+extern uint8_t ev_ring[1][3];
+#else
 extern uint8_t ev_ring[256][3];
+#endif
 
 /* md_drums.c: the drum kit (WAVs in MIDI_DRUMS, into cartridge memory) */
 #define MAX_DRUMS   64
@@ -94,7 +110,11 @@ extern volatile uint8_t rx_custom;
 void rx_take(uint8_t v);
 
 /* md_files.c: the patch list and file transfers */
+#ifdef MD_ONLY
+#define MAX_FILES   500         /* (64 KB of RAM holds the screen too) */
+#else
 #define MAX_FILES   999
+#endif
 extern uint8_t file_buf[BUF_SIZE];
 int  files_scan(void);          /* count, or ERR_NO_ED / ERR_SD */
 int  file_name_len(int i);

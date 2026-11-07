@@ -9,7 +9,12 @@
  */
 #include "md.h"
 
+#ifdef MD_ONLY
+extern const uint8_t __rom_base[];          /* (no 32X: the cartridge at 0, src/mdonly/mdonly.ld) */
+#define ROM     __rom_base
+#else
 #define ROM     ((const uint8_t *)0x880000)
+#endif
 
 static const uint8_t *dir;
 static int n;
