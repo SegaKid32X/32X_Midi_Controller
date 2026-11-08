@@ -1,0 +1,23 @@
+# Publishes release/ (the ROMs and the Teensy firmware) as the "latest"
+# release whenever they change on main.
+name: release
+on:
+  push:
+    branches: [main]
+    paths: ['release/**', '.github/workflows/release.yml', '.github/release-notes.md']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest \
+            release/midi32x.32x release/midimd.bin release/midi32x.hex \
+            --title "Latest build" --notes-file .github/release-notes.md --target "$GITHUB_SHA"
