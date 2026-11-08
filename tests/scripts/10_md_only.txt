@@ -23,7 +23,7 @@ run 60
 press a 4
 run 40
 shot md_editor
-press y 4
+press b 4
 run 30
 press start 4
 run 30

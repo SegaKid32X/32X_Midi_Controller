@@ -99,9 +99,9 @@ avr-gcc); it uses PJRC's USB MIDI code (MIT).
 
 | Button | Library | Editor |
 |---|---|---|
-| D-pad | choose a patch (it loads); left/right a page | choose a setting |
-| A | edit the target channel's voice | value up |
-| B | up a folder (3-button pad, top folder: the controls) | value down |
+| D-pad | choose a patch (it loads); left/right a page | choose a setting; while changing one: up/down by 1, left/right by 10 |
+| A | edit the target channel's voice | change the setting / done |
+| B | up a folder (3-button pad, top folder: the controls) | back to the library (while changing: done) |
 | C | target channel 1-6 / ALL | next channel |
 | X | hear it: middle C while held | value up by 10 |
 | Z | | value down by 10 |

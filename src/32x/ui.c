@@ -4,8 +4,9 @@
  *          after you stop: you hear it at once), LEFT/RIGHT a page,
  *          C the target channel (1-6 or ALL), A the editor, Y delete,
  *          START the guide, MODE (or B on a 3-button pad) the controls.
- * EDITOR   the D-pad moves, A/B change the value (held: faster), X/Z by 10,
- *          C the channel, START save, Y back, MODE the controls.
+ * EDITOR   the D-pad moves, A changes the setting (then UP/DOWN by 1,
+ *          LEFT/RIGHT by 10, A or B done), X/Z by 10 at once, C the channel,
+ *          START save, B (or Y) back, MODE the controls.
  *
  * What the GenMDM (or a DAW behind it) changes shows here as it happens:
  * the 68000 counts the writes it receives and we read the voice again.
@@ -42,6 +43,9 @@ static char chan_path[NSLOT][PATH_MAX_ + NAME_MAX + 2];   /* the file each slot 
 static int chan_edited[NSLOT];
 static fm_patch voice;                  /* the voice shown (the editor's channel) */
 static int ed_row, ed_col, save_choice, menu_choice, set_row;
+static int ed_changing;                 /* the editor: A pressed, the D-pad changes the value */
+static int frame_el = 1;                /* frames since the last ui_frame() (the Genesis-only
+                                         * build can take several to draw) */
 #define SET_PWM_VOL SET_COUNT     /* (kept here: the 32X's own setting) */
 #ifdef MD_ONLY
 #define NSET        SET_COUNT
@@ -118,19 +122,8 @@ static uint16_t read_buttons(void)
     uint16_t now = hw_pad();
     uint16_t pressed = now & (uint16_t)~held_prev;
     const uint16_t rep = PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_A | PAD_B;
-#ifdef MD_ONLY
-    /* (a redraw can take several frames here: count real frames) */
-    extern uint16_t md_vblanks(void);
-    static uint16_t last_t;
-    uint16_t t = md_vblanks();
-    int el = (uint16_t)(t - last_t);
-    last_t = t;
-    if (el < 1) el = 1;
-#else
-    const int el = 1;
-#endif
     if (now & rep & held_prev) {
-        if ((repeat_timer -= el) <= 0) {
+        if ((repeat_timer -= frame_el) <= 0) {
             pressed |= now & rep;
             repeat_timer = 4;
         }
@@ -468,6 +461,7 @@ static void library_input(uint16_t p)
     if (p & PAD_A) {
         screen = SCR_EDITOR;
         ed_row = ed_col = 0;
+        ed_changing = 0;
         slot_read(shown_ch(), &voice);
         dirty = 1;
     }
@@ -564,14 +558,14 @@ static void draw_editor(void)
     for (int i = 0; i < NGLOBAL; i++) {
         int x = 4 + i * 34, y = 30;
         int sel = ed_row == 0 && ed_col == i;
-        if (sel) gfx_rect(x - 2, y - 2, 32, 21, COL_CURSOR);
+        if (sel) gfx_rect(x - 2, y - 2, 32, 21, ed_changing ? COL_ORANGE : COL_CURSOR);
         gfx_text(x, y, gname[i], COL_DIM);
         o = t;
         if (i == P_PAN) o = stpcpy(o, pans[gv[i] & 3]);
         else if (i == P_LFO && !gv[i]) o = stpcpy(o, "OFF");
         else o = fmt_num(o, i == P_LFO ? gv[i] - 1 : gv[i]);
         *o = 0;
-        gfx_text(x, y + 10, t, sel ? COL_HI : COL_TEXT);
+        gfx_text(x, y + 10, t, sel ? (ed_changing ? COL_BG : COL_HI) : COL_TEXT);
     }
     draw_algorithm(214, 26, voice.alg, voice.fb);
 
@@ -588,9 +582,9 @@ static void draw_editor(void)
         gfx_text(4, y, oname[r], COL_DIM);
         for (int i = 0; i < 4; i++) {
             int sel = ed_row == r + 1 && ed_col == i;
-            if (sel) gfx_rect(tx + i * cw - 2, y - 1, cw - 4, CHAR_H, COL_CURSOR);
+            if (sel) gfx_rect(tx + i * cw - 2, y - 1, cw - 4, CHAR_H, ed_changing ? COL_ORANGE : COL_CURSOR);
             cell_text(t, r, op_get(&voice.op[i], r));
-            gfx_text(tx + i * cw, y, t, sel ? COL_HI : COL_TEXT);
+            gfx_text(tx + i * cw, y, t, sel ? (ed_changing ? COL_BG : COL_HI) : COL_TEXT);
         }
     }
     for (int i = 0; i < 4; i++) {
@@ -601,7 +595,8 @@ static void draw_editor(void)
     }
     gfx_text(186, 190, "ORANGE: CARRIERS", COL_DIM);
     gfx_text(186, 199, "GREEN: MODULATORS", COL_DIM);
-    footer("A/B VALUE  X/Z 10  C CHAN  START SAVE  Y BACK");
+    footer(ed_changing ? "UP/DOWN 1  LEFT/RIGHT 10  A OR B: DONE"
+                       : "A CHANGE  B BACK  C CHAN  START SAVE");
 }
 
 static void voice_changed(void)
@@ -646,6 +641,17 @@ static void editor_change(int d)
 
 static void editor_input(uint16_t p)
 {
+    if (ed_changing) {                          /* the D-pad changes the value */
+        if (p & PAD_UP) editor_change(+1);
+        if (p & PAD_DOWN) editor_change(-1);
+        if (p & PAD_RIGHT) editor_change(+10);
+        if (p & PAD_LEFT) editor_change(-10);
+        if (p & PAD_X) editor_change(+10);
+        if (p & PAD_Z) editor_change(-10);
+        if (p & (PAD_A | PAD_B | PAD_Y)) { ed_changing = 0; dirty = 1; }
+        if (p & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT)) dirty = 1;
+        return;
+    }
     if (p & PAD_UP) ed_row = ed_row > 0 ? ed_row - 1 : NOP_ROWS;
     if (p & PAD_DOWN) ed_row = ed_row < NOP_ROWS ? ed_row + 1 : 0;
     int ncols = ed_row == 0 ? NGLOBAL : 4;
@@ -653,8 +659,7 @@ static void editor_input(uint16_t p)
     if (p & PAD_LEFT) ed_col = ed_col > 0 ? ed_col - 1 : ncols - 1;
     if (p & PAD_RIGHT) ed_col = ed_col < ncols - 1 ? ed_col + 1 : 0;
     if (p & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT)) dirty = 1;
-    if (p & PAD_A) editor_change(+1);
-    if (p & PAD_B) editor_change(-1);
+    if (p & PAD_A) { ed_changing = 1; dirty = 1; }
     if (p & PAD_X) editor_change(+10);
     if (p & PAD_Z) editor_change(-10);
     if (p & PAD_C) {
@@ -667,7 +672,7 @@ static void editor_input(uint16_t p)
         save_choice = chan_path[shown_ch()][0] ? 0 : 1;
         dirty = 1;
     }
-    if (p & PAD_Y) {
+    if (p & (PAD_B | PAD_Y)) {                  /* back to the library */
         screen = SCR_LIBRARY;
         dirty = 1;
     }
@@ -697,11 +702,11 @@ static void draw_help(void)
         "",
         "EDITOR",
         "D-PAD       CHOOSE A SETTING",
-        "A / B       VALUE UP / DOWN",
-        "X / Z       UP / DOWN BY 10",
+        "A           CHANGE IT: UP/DOWN 1, L/R 10",
+        "A OR B      DONE CHANGING",
         "C           NEXT CHANNEL",
         "START       SAVE TO THE SD CARD",
-        "Y           BACK TO THE LIBRARY",
+        "B (OR Y)    BACK TO THE LIBRARY",
         "",
         "MODE (3-BUTTON PAD: B)  THIS SCREEN",
         "PRESS ANY BUTTON TO CLOSE",
@@ -1182,6 +1187,15 @@ void ui_start(void)
 
 void ui_frame(void)
 {
+#ifdef MD_ONLY
+    extern uint16_t md_vblanks(void);
+    static uint16_t last_t;
+    uint16_t now_t = md_vblanks();
+    frame_el = (uint16_t)(now_t - last_t);
+    last_t = now_t;
+    if (frame_el < 1) frame_el = 1;
+    if (frame_el > 30) frame_el = 30;
+#endif
     uint16_t p = read_buttons();
     /* (a 3-button pad: B is the help on the home screen's top folder; in a
      * folder it goes up) */
@@ -1197,14 +1211,14 @@ void ui_frame(void)
         editor_input(p);
     }
     preview();
-    if (load_timer > 0 && --load_timer == 0) {
+    if (load_timer > 0 && (load_timer -= frame_el) <= 0) {
         load_timer = -1;
         if (lib_count) load_cursor();
         dirty = 1;
     }
     /* the GenMDM changed something: show it (at most every few frames) */
     uint16_t act = hw_activity();
-    if (act != last_act && ++act_timer >= 6) {
+    if (act != last_act && (act_timer += frame_el) >= 6) {
         act_timer = 0;
         last_act = act;
         fm_patch now;
@@ -1219,7 +1233,7 @@ void ui_frame(void)
 no_refresh:
     /* the MIDI lights (and the monitor) */
     monitor_poll();
-    if (overlay == OV_MONITOR && ++mon_timer >= 3) {
+    if (overlay == OV_MONITOR && (mon_timer += frame_el) >= 3) {
         mon_timer = 0;
         if (monitor_fetch()) dirty = 1;
     }
@@ -1229,7 +1243,7 @@ no_refresh:
         if (overlay == OV_MONITOR) dirty = 1;
         else if (!dirty) { draw_lights(); gfx_present(); }
     }
-    if (message_timer > 0 && --message_timer == 0)
+    if (message_timer > 0 && (message_timer -= frame_el) <= 0)
         dirty = 1;
     static uint16_t last_flags;
     if ((hw_flags() & 0xFF) != last_flags) {    /* (the high byte counts the 32X's events) */

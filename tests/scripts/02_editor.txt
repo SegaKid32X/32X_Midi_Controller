@@ -1,4 +1,5 @@
-# The editor: open it, move, change values, the save panel, back.
+# The editor: open it, move, change values (A, then the D-pad), the save
+# panel, back with B.
 # pad6
 run 300
 press down 4
@@ -9,6 +10,10 @@ shot editor
 press down 4
 run 6
 press a 4
+run 6
+press up 4
+run 6
+press up 4
 run 6
 press a 4
 run 20
@@ -25,7 +30,7 @@ run 20
 shot save_panel
 press b 4
 run 20
-press y 4
+press b 4
 run 30
 shot back_to_library
 telem
