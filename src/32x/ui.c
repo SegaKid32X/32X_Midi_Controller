@@ -19,8 +19,8 @@
 #include "guide.h"
 #include "synth.h"
 
-enum { SCR_LIBRARY, SCR_EDITOR };
-enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS, OV_MONITOR };
+enum { SCR_LIBRARY, SCR_EDITOR, SCR_PSGED };
+enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS, OV_MONITOR, OV_PSGMENU };
 
 #define ALL_CH      6
 #define PWM_T       7           /* 7-10: the 32X's FM channels (MIDI 11-14) */
@@ -48,15 +48,18 @@ static int chan_edited[NSLOT];
 static fm_patch voice;                  /* the voice shown (the editor's channel) */
 static int ed_row, ed_col, save_choice, menu_choice, set_row;
 static int ed_changing;                 /* the editor: A pressed, the D-pad changes the value */
+static int pe_row, pe_step;             /* the PSG editor: the sequence, the step */
 static int frame_el = 1;                /* frames since the last ui_frame() (the Genesis-only
                                          * build can take several to draw) */
-#define SET_PWM_VOL SET_COUNT     /* (kept here: the 32X's own setting) */
+/* (the screens' own settings, after the 68000's) */
+#define SET_LOUD    SET_COUNT           /* 1: a patch loads with its loudest carrier at full */
+#define SET_PWM_VOL (SET_COUNT + 1)     /* the 32X's voices */
 #ifdef MD_ONLY
-#define NSET        SET_COUNT
-#else
 #define NSET        (SET_COUNT + 1)
+#else
+#define NSET        (SET_COUNT + 2)
 #endif
-static uint8_t settings[SET_COUNT + 1];
+static uint8_t settings[SET_COUNT + 2];
 static int preview_note = -1;           /* the note X is playing, or -1 */
 static void menu_input(uint16_t p);
 static void settings_input(uint16_t p);
@@ -119,6 +122,8 @@ static int next_target(int t, int editor)
 
 /* ---- the PSG instruments (targets PSG 1-3, NOISE) ---- */
 static char psg_name[4][40];            /* the file each came from ("": none) */
+static char psg_rel[4][128];            /* its path inside MIDI_PATCHES ("": none or too long) */
+static uint8_t psg_edited[4];
 static uint32_t psg_from[4];            /* (a hash of its path: the green mark) */
 static psg_patch psg_shown;             /* the shown target's, as the 68000 has it */
 
@@ -375,9 +380,19 @@ static void load_cursor(void)
         int c = target - PSG_T;
         lib_psg_set(c, ps);
         psg_from[c] = path_hash(rel);
+        psg_edited[c] = 0;
+        psg_rel[c][0] = 0;
+        if (strlen(rel) < sizeof psg_rel[c]) strcpy(psg_rel[c], rel);
         strncpy(psg_name[c], base_name(rel), sizeof psg_name[c] - 1);
         psg_name[c][sizeof psg_name[c] - 1] = 0;
         return;
+    }
+    if (settings[SET_LOUD]) {                   /* its loudest carrier at full volume */
+        int lo = 127;
+        for (int i = 0; i < 4; i++)
+            if (algs[p.alg].carriers >> i & 1 && p.op[i].tl < lo) lo = p.op[i].tl;
+        for (int i = 0; i < 4; i++)
+            if (algs[p.alg].carriers >> i & 1) p.op[i].tl = (uint8_t)(p.op[i].tl - lo);
     }
     apply_to_target(&p, rel);
     voice = p;
@@ -656,8 +671,11 @@ static void library_input(uint16_t p)
         load_cursor();
         return;
     }
-    if ((p & PAD_A) && IS_PSG(target)) {
-        say("PSG INSTRUMENTS: NO EDITOR YET");
+    if ((p & PAD_A) && IS_PSG(target)) {        /* the PSG instrument editor */
+        screen = SCR_PSGED;
+        pe_row = pe_step = 0;
+        lib_psg_get(target - PSG_T, &psg_shown);
+        dirty = 1;
         return;
     }
     if (p & PAD_A) {                            /* A on the chosen one: edit it */
@@ -880,6 +898,244 @@ static void editor_input(uint16_t p)
     }
 }
 
+/* ------------------------------------------------------------ the PSG editor */
+
+static void panel(int x, int y, int w, int h);
+
+/* The target's PSG instrument (psg_shown) as bar graphs, a step a frame:
+ * the volume, the arpeggio and (NOISE) white / periodic. LEFT/RIGHT the
+ * step, UP/DOWN its value, A the next sequence, X / Z a step more / less,
+ * Y the loop here, START more (save ...), B back. Heard at once. */
+#define PE_X    46                      /* the graphs' left edge; 5 pixels a step */
+#define PE_W    5
+
+static psg_seq *pe_seq(int r)
+{
+    return r == 0 ? &psg_shown.vol : r == 1 ? &psg_shown.arp : &psg_shown.noise;
+}
+
+static int pe_rows(void) { return target == PSG_T + 3 ? 3 : 2; }
+
+static void pe_range(int r, int *lo, int *hi)
+{
+    if (r == 0) { *lo = 0; *hi = 15; }
+    else if (r == 2) { *lo = 0; *hi = 1; }
+    else if (psg_shown.arp_fixed) { *lo = 0; *hi = 95; }
+    else { *lo = -48; *hi = 48; }
+}
+
+static void pe_changed(void)
+{
+    int c = target - PSG_T;
+    lib_psg_set(c, &psg_shown);
+    psg_edited[c] = 1;
+    dirty = 1;
+}
+
+static void pe_add(void)                         /* a step more (the last one again) */
+{
+    psg_seq *q = pe_seq(pe_row);
+    if (q->len >= PSG_STEPS) { say("48 STEPS AT MOST"); return; }
+    q->v[q->len] = q->len ? q->v[q->len - 1] : (pe_row == 0 ? 15 : 0);
+    q->len++;
+    pe_step = q->len - 1;
+    pe_changed();
+}
+
+static void pe_remove(void)
+{
+    psg_seq *q = pe_seq(pe_row);
+    if (!q->len) return;
+    q->len--;
+    if (q->loop != 0xFF && q->loop >= q->len) q->loop = 0xFF;
+    if (pe_step >= q->len && pe_step) pe_step = q->len ? q->len - 1 : 0;
+    pe_changed();
+}
+
+static void pe_graph(int r, int y, int h)
+{
+    psg_seq *q = pe_seq(r);
+    int lo, hi;
+    pe_range(r, &lo, &hi);
+    int glo = r == 1 && !psg_shown.arp_fixed ? -12 : lo, ghi = r == 1 && !psg_shown.arp_fixed ? 12 : hi;
+    static const char *const names[3] = { "VOLUME", "ARP", "NOISE" };
+    int sel = r == pe_row;
+    gfx_text(4, y, r == 1 && psg_shown.arp_fixed ? "NOTES" : names[r], sel ? COL_HI : COL_DIM);
+    char t[16], *o = t;
+    o = fmt_num((char *)memcpy(t, "LEN ", 4) + 4, q->len);
+    *o = 0;
+    gfx_text(4, y + 11, t, COL_DIM);
+    if (q->loop != 0xFF) { o = fmt_num((char *)memcpy(t, "LP ", 3) + 3, q->loop + 1); *o = 0; }
+    else strcpy(t, "NO LP");
+    gfx_text(4, y + 21, t, q->loop != 0xFF ? COL_HI : COL_DIM);
+    gfx_rect(PE_X - 1, y - 1, PSG_STEPS * PE_W + 2, h + 2, sel ? COL_PANEL2 : COL_PANEL);
+    if (sel) gfx_rect(PE_X + pe_step * PE_W, y - 1, PE_W, h + 2, COL_CURSOR);
+    int zero = y + h - 1 - (0 - glo) * (h - 1) / (ghi - glo);
+    if (zero > y + h - 1) zero = y + h - 1;
+    if (glo < 0) gfx_rect(PE_X, zero, PSG_STEPS * PE_W, 1, COL_LINE);
+    uint8_t col = r == 0 ? COL_GREEN : r == 1 ? COL_ORANGE : COL_BLUE;
+    for (int i = 0; i < q->len; i++) {
+        int v = q->v[i];
+        if (v < glo) v = glo;
+        if (v > ghi) v = ghi;
+        int py = y + h - 1 - (v - glo) * (h - 1) / (ghi - glo);
+        int a = py < zero ? py : zero, b = py < zero ? zero : py;
+        gfx_rect(PE_X + i * PE_W, a, PE_W - 1, b - a + 1, sel && i == pe_step ? COL_HI : col);
+    }
+    if (q->loop != 0xFF)
+        gfx_rect(PE_X + q->loop * PE_W, y + h + 2, PE_W - 1, 2, COL_HI);
+}
+
+static void draw_psg_editor(void)
+{
+    int c = target - PSG_T;
+    gfx_clear(COL_BG);
+    char t[60];
+    strcpy(t, "EDIT ");
+    strcat(t, ch_names[target]);
+    header(t);
+    gfx_text_n(4, 15, psg_name[c][0] ? psg_name[c] : "(A NEW INSTRUMENT)", 40, COL_TEXT);
+    if (psg_edited[c]) gfx_text(4 + 41 * CHAR_W, 15, "*", COL_ORANGE);
+    pe_graph(0, 30, 45);
+    pe_graph(1, 92, 45);
+    if (pe_rows() == 3) pe_graph(2, 156, 12);
+    /* the step under the cursor */
+    psg_seq *q = pe_seq(pe_row);
+    char *o = (char *)memcpy(t, "STEP ", 5) + 5;
+    o = fmt_num(o, pe_step + 1);
+    if (pe_step < q->len) {
+        o = (char *)memcpy(o, ": ", 2) + 2;
+        int v = q->v[pe_step];
+        if (pe_row == 2) o = (char *)memcpy(o, v & 1 ? "WHITE" : "PERIODIC", v & 1 ? 5 : 8) + (v & 1 ? 5 : 8);
+        else { if (pe_row == 1 && !psg_shown.arp_fixed && v > 0) *o++ = '+'; o = fmt_num(o, v); }
+    } else {
+        o = (char *)memcpy(o, ": - (X ADDS ONE)", 16) + 16;
+    }
+    *o = 0;
+    gfx_text(PE_X, pe_rows() == 3 ? 180 : 156, t, COL_HI);
+    gfx_text(PE_X, pe_rows() == 3 ? 192 : 168, "X/Z STEP +/-  Y LOOP  HOLD X: HEAR", COL_DIM);
+    footer("L/R STEP  U/D VALUE  A ROW  START MORE  B BACK");
+}
+
+static void psg_editor_input(uint16_t p)
+{
+    psg_seq *q = pe_seq(pe_row);
+    int lo, hi;
+    pe_range(pe_row, &lo, &hi);
+    if (p & PAD_LEFT) { pe_step = pe_step > 0 ? pe_step - 1 : (q->len ? q->len - 1 : 0); dirty = 1; }
+    if (p & PAD_RIGHT) { pe_step = pe_step + 1 < q->len ? pe_step + 1 : 0; dirty = 1; }
+    if (p & (PAD_UP | PAD_DOWN)) {
+        if (pe_step >= q->len) { pe_add(); q = pe_seq(pe_row); }
+        int v = q->v[pe_step] + ((p & PAD_UP) ? 1 : -1);
+        if (v < lo) v = lo;
+        if (v > hi) v = hi;
+        q->v[pe_step] = (int8_t)v;
+        pe_changed();
+    }
+    if (p & PAD_A) {                            /* the next sequence */
+        pe_row = (pe_row + 1) % pe_rows();
+        q = pe_seq(pe_row);
+        if (pe_step >= q->len) pe_step = q->len ? q->len - 1 : 0;
+        dirty = 1;
+    }
+    if (p & PAD_X) pe_add();
+    if (p & PAD_Z) pe_remove();
+    if ((p & PAD_Y) && pe_step < q->len) {      /* loop from here (again: none) */
+        q->loop = q->loop == pe_step ? 0xFF : (uint8_t)pe_step;
+        pe_changed();
+    }
+    if (p & PAD_START) { overlay = OV_PSGMENU; menu_choice = 0; dirty = 1; }
+    if (p & PAD_B) { screen = SCR_LIBRARY; dirty = 1; }
+}
+
+/* START in the PSG editor */
+#define NPSGMENU 7
+static void psg_menu_item(int i, char *t)
+{
+    int c = target - PSG_T;
+    switch (i) {
+    case 0: strcpy(t, "ADD A STEP (X)"); break;
+    case 1: strcpy(t, "REMOVE THE LAST STEP (Z)"); break;
+    case 2: strcpy(t, "LOOP FROM THIS STEP (Y)"); break;
+    case 3: strcpy(t, "NO LOOP"); break;
+    case 4: strcpy(t, psg_shown.arp_fixed ? "ARPEGGIO: FIXED NOTES" : "ARPEGGIO: ADDED TO THE KEY"); break;
+    case 5:
+        strcpy(t, "OVERWRITE ");
+        if (psg_rel[c][0]) strncat(t, base_name(psg_rel[c]), 26);
+        else strcat(t, "(NOT FROM A FILE)");
+        break;
+    default: strcpy(t, "SAVE AS A NEW .DMP FILE"); break;
+    }
+}
+
+static void draw_psg_menu(void)
+{
+    char t[48];
+    panel(30, 60, 260, 20 + NPSGMENU * 11 + 12);
+    gfx_text(40, 67, "PSG INSTRUMENT", COL_HI);
+    for (int i = 0; i < NPSGMENU; i++) {
+        int y = 81 + i * 11;
+        if (i == menu_choice) gfx_rect(36, y - 2, 248, 11, COL_CURSOR);
+        psg_menu_item(i, t);
+        gfx_text_n(40, y, t, 40, i == menu_choice ? COL_HI : COL_TEXT);
+    }
+    gfx_text(40, 81 + NPSGMENU * 11 + 2, "A: DO IT   B: BACK", COL_DIM);
+}
+
+static void psg_save(int overwrite)
+{
+    int c = target - PSG_T;
+    char name[PATH_MAX_ + NAME_MAX + 2];
+    if (overwrite) {
+        if (!psg_rel[c][0]) { say("NOT FROM A FILE: SAVE A NEW ONE"); return; }
+        strcpy(name, psg_rel[c]);
+    } else {
+        char base[NAME_MAX + 1];
+        lib_new_name(base, "dmp");
+        name[0] = 0;
+        if (lib_path[0]) { strcpy(name, lib_path); strcat(name, "/"); }
+        strcat(name, base);
+    }
+    say("SAVING...");
+    ui_draw();
+    int e = lib_save_psg(name, &psg_shown);
+    if (e) { say_err("COULD NOT SAVE:", e); return; }
+    lib_scan();
+    psg_from[c] = path_hash(name);
+    psg_rel[c][0] = 0;
+    if (strlen(name) < sizeof psg_rel[c]) strcpy(psg_rel[c], name);
+    strncpy(psg_name[c], base_name(name), sizeof psg_name[c] - 1);
+    psg_name[c][sizeof psg_name[c] - 1] = 0;
+    psg_edited[c] = 0;
+    char t[60] = "SAVED ";
+    strncat(t, base_name(name), 50);
+    say(t);
+}
+
+static void psg_menu_input(uint16_t p)
+{
+    if (p & PAD_UP) menu_choice = (menu_choice + NPSGMENU - 1) % NPSGMENU;
+    if (p & PAD_DOWN) menu_choice = (menu_choice + 1) % NPSGMENU;
+    if (p & (PAD_UP | PAD_DOWN)) dirty = 1;
+    if (p & PAD_A) {
+        psg_seq *q = pe_seq(pe_row);
+        overlay = OV_NONE;
+        dirty = 1;
+        switch (menu_choice) {
+        case 0: pe_add(); break;
+        case 1: pe_remove(); break;
+        case 2: if (pe_step < q->len) { q->loop = (uint8_t)pe_step; pe_changed(); } break;
+        case 3: q->loop = 0xFF; pe_changed(); break;
+        case 4: psg_shown.arp_fixed ^= 1; pe_changed(); break;
+        case 5: psg_save(1); break;
+        default: psg_save(0); break;
+        }
+    } else if (p & (PAD_B | PAD_START)) {
+        overlay = OV_NONE;
+        dirty = 1;
+    }
+}
+
 /* ------------------------------------------------------------ overlays */
 
 static void panel(int x, int y, int w, int h)
@@ -1001,6 +1257,7 @@ static void overlay_input(uint16_t p)
     case OV_HELP:
         if (p) { overlay = OV_NONE; dirty = 1; }
         break;
+    case OV_PSGMENU: psg_menu_input(p); break;
     case OV_MONITOR:
         if (p & (PAD_B | PAD_START | PAD_Y)) { overlay = OV_NONE; dirty = 1; }
         break;
@@ -1223,16 +1480,16 @@ static void draw_monitor(void)
     footer("B: BACK");
 }
 
-static const char *const set_names[SET_COUNT + 1] = { "MODE", "POLY MIDI CHANNEL", "TUNING", "VELOCITY",
-                                             "STEREO SPREAD", "32X VOLUME (CH 11-16)" };
-static const uint8_t set_max[SET_COUNT + 1] = { 1, 15, 1, 1, 1, 10 };
+static const char *const set_names[SET_COUNT + 2] = { "MODE", "POLY MIDI CHANNEL", "TUNING", "VELOCITY",
+                                             "STEREO SPREAD", "LOUDNESS", "32X VOLUME (CH 11-16)" };
+static const uint8_t set_max[SET_COUNT + 2] = { 1, 15, 1, 1, 1, 1, 10 };
 
 static void settings_fetch(void)
 {
     for (int i = 0; i < SET_COUNT; i++)
         settings[i] = (uint8_t)md_cmd(CMD_SETTING, (uint16_t)i, 0xFFFF, 0);
     static int first = 1;
-    if (first) { settings[SET_PWM_VOL] = 8; first = 0; }
+    if (first) { settings[SET_PWM_VOL] = 8; settings[SET_LOUD] = 1; first = 0; }
 }
 
 static void draw_settings(void)
@@ -1250,21 +1507,25 @@ static void draw_settings(void)
         case SET_POLY_CH: *fmt_num(t, v + 1) = 0; break;
         case SET_REGION: strcpy(t, v ? "PAL" : "NTSC"); break;
         case SET_PWM_VOL: *fmt_num(t, v) = 0; break;
+        case SET_LOUD: strcpy(t, v ? "FULL" : "AS SAVED"); break;
         default: strcpy(t, v ? "ON" : "OFF"); break;
         }
         gfx_text(190, y, t, i == set_row ? COL_HI : COL_TEXT);
     }
-    static const char *const help[SET_COUNT + 1] = {
+    static const char *const help[SET_COUNT + 2] = {
         "GENMDM: MIDI CH 1-6 PLAY FM 1-6.  POLY: ONE",
         "THE CHANNEL YOUR KEYBOARD SENDS ON (POLY)",
         "MATCH YOUR CONSOLE SO NOTES ARE IN TUNE",
         "HARDER KEYS PLAY LOUDER",
         "EACH POLY NOTE LEFT, RIGHT OR CENTRE",
+        "FULL: A PATCH LOADS AT FULL VOLUME (GAME",
         "THE 32X'S VOICES AGAINST THE MEGA DRIVE'S",
     };
     gfx_text(28, 128 + 6, help[set_row], COL_DIM);
     if (set_row == SET_MODE)
         gfx_text(28, 139 + 6, "CHANNEL PLAYS ALL SIX FM VOICES", COL_DIM);
+    if (set_row == SET_LOUD)
+        gfx_text(28, 139 + 6, "PATCHES ARE OFTEN SAVED QUIETER)", COL_DIM);
     if ((hw_flags() & FL_LINK) != LINK_MIDI) {
         gfx_text(28, 157, "THESE NEED THE NEW TEENSY FIRMWARE:", COL_ORANGE);
         gfx_text(28, 167, "THE STOCK ONE DECIDES ALL THIS ITSELF", COL_ORANGE);
@@ -1302,6 +1563,8 @@ static void settings_input(uint16_t p)
         if (set_row == SET_PWM_VOL) {
             settings[set_row] = (uint8_t)v;
             synth_set_volume(v);
+        } else if (set_row == SET_LOUD) {
+            settings[set_row] = (uint8_t)v;
         } else {
             settings[set_row] = (uint8_t)md_cmd(CMD_SETTING, (uint16_t)set_row, (uint16_t)v, 0);
         }
@@ -1330,7 +1593,7 @@ static void settings_input(uint16_t p)
 /* X on the home screen: middle C while it is held, on the target's channel */
 static void preview(void)
 {
-    if (screen != SCR_LIBRARY || overlay != OV_NONE) return;
+    if ((screen != SCR_LIBRARY && screen != SCR_PSGED) || overlay != OV_NONE) return;
     int down = (held_now & PAD_X) != 0;
     if (down && preview_note < 0) {
         int mch = settings[SET_MODE] ? settings[SET_POLY_CH] : (target == ALL_CH ? 0 : target);
@@ -1366,12 +1629,14 @@ void ui_draw(void)
         return;
     }
     if (screen == SCR_LIBRARY) draw_library();
+    else if (screen == SCR_PSGED) draw_psg_editor();
     else draw_editor();
     if (overlay == OV_HELP) draw_help();
     else if (overlay == OV_DELETE) draw_delete();
     else if (overlay == OV_SAVE) draw_save();
     else if (overlay == OV_MENU) draw_menu();
     else if (overlay == OV_SETTINGS) draw_settings();
+    else if (overlay == OV_PSGMENU) draw_psg_menu();
     gfx_present();
     dirty = 0;
 }
@@ -1424,6 +1689,8 @@ void ui_frame(void)
         dirty = 1;
     } else if (screen == SCR_LIBRARY) {
         library_input(p);
+    } else if (screen == SCR_PSGED) {
+        psg_editor_input(p);
     } else {
         editor_input(p);
     }

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """After tests/scripts/1x_poly*.txt: every FM channel of the YM2612 (the
 68000's register shadow, from the harness's dumpram) holds the patch that
-was chosen (Bells/Glockenspiel.tfi of the sample patches).
+was chosen (Bells/Glockenspiel.tfi of the sample patches), its carriers
+brought up to full volume (the LOUDNESS setting).
 
 usage: check_poly.py OUTDIR ELF PATCH.tfi
 """
@@ -25,6 +26,12 @@ for k, op_reg in enumerate((0x0, 0x4, 0x8, 0xC)):      # the file's OP1 OP3 OP2 
     want[0x60 + op_reg] = dr
     want[0x70 + op_reg] = sr
     want[0x80 + op_reg] = sl << 4 | rr
+# LOUDNESS (on by default): the carriers come up so the loudest is at TL 0
+CARRIERS = {0: [0xC], 1: [0xC], 2: [0xC], 3: [0xC], 4: [0x8, 0xC], 5: [0x8, 0x4, 0xC],
+            6: [0x8, 0x4, 0xC], 7: [0x0, 0x8, 0x4, 0xC]}[d[0] & 7]
+lo = min(want[0x40 + r] for r in CARRIERS)
+for r in CARRIERS:
+    want[0x40 + r] -= lo
 bad = []
 for ch in range(6):
     base = shadow + (ch // 3) * 256 + ch % 3

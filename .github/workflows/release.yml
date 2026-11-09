@@ -20,4 +20,5 @@ jobs:
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest \
             release/midi32x.32x release/midimd.bin release/midi32x.hex release/sample_patches.zip \
+            release/vaporwave_metal_y12.zip \
             --title "Latest build" --notes-file .github/release-notes.md --target "$GITHUB_SHA"

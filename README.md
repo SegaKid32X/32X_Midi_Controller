@@ -57,7 +57,28 @@ home screen, C until the target says `PSG 1`, `PSG 2`, `PSG 3` or `NOISE`
 (MIDI channels 7, 8, 9, 10), then choose a `.dmp` PSG instrument: the panel
 draws its sequences, X hears it. Without one a PSG note is a plain tone at
 the key's volume, as before. 17 samples are in `sample_patches.zip`
-(`Samples/PSG`, `Samples/PSG Noise`). No PSG editor yet.
+(`Samples/PSG`, `Samples/PSG Noise`).
+
+**The PSG editor**: A on the chosen PSG instrument. Each sequence is a bar
+graph, a step a frame: LEFT/RIGHT the step, UP/DOWN its value, A the next
+sequence (volume, arpeggio, noise), X / Z a step more / less, Y the loop at
+this step, START more (relative / fixed arpeggio, save over the file or as a
+new `.dmp`), B back. Every change is heard at once (hold X).
+
+## Loudness
+
+Patches from games are often saved quieter than full (the game set the
+level). With **Settings, LOUDNESS: FULL** (the default) a patch loads with
+its loudest carrier at full volume and the others kept in proportion; `AS
+SAVED` loads it exactly as the file has it. (Saving a patch saves what you
+hear.)
+
+`release/vaporwave_metal_y12.zip`: 49 `.y12` patches picked for a synthy
+vaporwave and a metal sound from the games known for them (Thunder Force
+IV, Alien Soldier, Mega Turrican, Contra Hard Corps, Elemental Master,
+Streets of Rage 1-3, Sonic 1-3, Beyond Oasis, Ecco, Phantasy Star IV ...),
+taken from vitaflo's genesis-game-instruments archive, sorted by how they
+sound, at full volume.
 
 ## Our Teensy firmware (optional)
 

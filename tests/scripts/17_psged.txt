@@ -1,0 +1,83 @@
+# rom: samples
+# pad6
+# check: psged
+# The PSG editor: Arp Major on PSG 1, A again edits it: volume step 2 down
+# 3, the arpeggio's step 4 up 5, a step more, the loop there; START's menu;
+# B back. The 68000 has every change (tests/check_psged.py).
+run 300
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+run 30
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+run 40
+press a 4
+run 450
+press a 4
+run 60
+shot psged
+press right 4
+run 15
+press down 4
+run 15
+press down 4
+run 15
+press down 4
+run 15
+press a 4
+run 20
+press right 4
+run 15
+press right 4
+run 15
+press up 4
+run 15
+press up 4
+run 15
+press up 4
+run 15
+press up 4
+run 15
+press up 4
+run 15
+press x 4
+run 20
+press y 4
+run 30
+shot psged_changed
+dumpram pe
+press start 4
+run 40
+shot psged_menu
+press b 4
+run 30
+press b 4
+run 60
+shot back_to_library
+telem

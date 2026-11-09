@@ -29,6 +29,8 @@ int  lib_load(int i, fm_patch *p);      /* 0 or an error */
  * else an error */
 int  lib_load_any(int i, fm_patch *fm, psg_patch *psg);
 int  lib_psg_set(int ch, const psg_patch *p);   /* PSG channel ch's instrument (0: none) */
+int  lib_save_bytes(const char *name, const uint8_t *b, int len);   /* a file of these bytes */
+int  lib_save_psg(const char *name, const psg_patch *p);            /* a .dmp of it */
 int  lib_psg_get(int ch, psg_patch *p);         /* 1 if it has one */
 int  lib_save(const char *name, const fm_patch *p);    /* 0 or an error */
 int  lib_delete(const char *name);

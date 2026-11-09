@@ -133,7 +133,7 @@ int lib_find(const char *name)
     return -1;
 }
 
-static uint8_t data[512];
+static uint8_t data[PSG_FILE_MAX > 512 ? PSG_FILE_MAX : 512];   /* (files in and out) */
 
 static void get_bytes(int at, uint8_t *b, int n)        /* from the 68000's buffer */
 {
@@ -191,6 +191,19 @@ static int put_name(const char *name)
     int len = 0;
     for (; len < (int)sizeof n - 1 && name[len]; len++) n[len] = (uint8_t)name[len];
     return put_bytes(BUF_NAME, n, len + 1);         /* (with its zero) */
+}
+
+int lib_save_bytes(const char *name, const uint8_t *b, int len)
+{
+    int r = put_name(name);
+    if (!r) r = put_bytes(BUF_DATA, b, len);
+    if (!r) r = md_cmd(CMD_SAVE, (uint16_t)len, 0, 0);
+    return r;
+}
+
+int lib_save_psg(const char *name, const psg_patch *p)
+{
+    return lib_save_bytes(name, data, psg_write_dmp(p, data));
 }
 
 int lib_save(const char *name, const fm_patch *p)
