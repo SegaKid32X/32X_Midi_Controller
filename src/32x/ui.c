@@ -25,13 +25,17 @@ enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS, OV_
 #define ALL_CH      6
 #define PWM_T       7           /* 7-10: the 32X's FM channels (MIDI 11-14) */
 #define DRUMS_T     11          /* the 32X's drum kit (MIDI channel 16) */
+#define PSG_T       12          /* 12-15: the PSG's tone channels and its noise (MIDI 7-10) */
+#define IS_PSG(t)   ((t) >= PSG_T && (t) < PSG_T + 4)
+/* the targets in the order C goes through them */
 #ifdef MD_ONLY
-#define NTARGET     7           /* (no 32X: CH 1-6 and ALL) */
+static const uint8_t target_order[] = { 0, 1, 2, 3, 4, 5, 6, 12, 13, 14, 15 };  /* (no 32X) */
 #define APP_TITLE   "MD MIDI CONTROLLER"
 #else
-#define NTARGET     12
+static const uint8_t target_order[] = { 0, 1, 2, 3, 4, 5, 6, 12, 13, 14, 15, 7, 8, 9, 10, 11 };
 #define APP_TITLE   "32X MIDI CONTROLLER"
 #endif
+#define NTARGET     ((int)sizeof target_order)
 #define NSLOT       10          /* voices with a patch: YM 1-6, 32X 11-14 */
 #define LIST_ROWS   19
 #define LIST_Y      22
@@ -104,9 +108,25 @@ static void slot_apply(int slot, const fm_patch *p)
 /* C: the next target (the editor skips the drums) */
 static int next_target(int t, int editor)
 {
-    t = (t + 1) % NTARGET;
-    if (editor && t == DRUMS_T) t = 0;
+    int k = 0;
+    while (k < NTARGET && target_order[k] != t) k++;
+    do {
+        k = (k + 1) % NTARGET;
+        t = target_order[k];
+    } while (editor && (t == DRUMS_T || IS_PSG(t)));    /* (the editor: FM voices only) */
     return t;
+}
+
+/* ---- the PSG instruments (targets PSG 1-3, NOISE) ---- */
+static char psg_name[4][40];            /* the file each came from ("": none) */
+static uint32_t psg_from[4];            /* (a hash of its path: the green mark) */
+static psg_patch psg_shown;             /* the shown target's, as the 68000 has it */
+
+static uint32_t path_hash(const char *s)
+{
+    uint32_t h = 2166136261u;
+    while (*s) { h ^= (uint8_t)*s++; h = (h << 5 | h >> 27) + (h >> 11); }
+    return h | 1;
 }
 
 /* ------------------------------------------------------------ input */
@@ -137,8 +157,9 @@ static uint16_t read_buttons(void)
 
 /* ------------------------------------------------------------ drawing helpers */
 
-static const char *const ch_names[12] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6", "ALL",
-                                                "32X 11", "32X 12", "32X 13", "32X 14", "DRUMS" };
+static const char *const ch_names[16] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6", "ALL",
+                                                "32X 11", "32X 12", "32X 13", "32X 14", "DRUMS",
+                                                "PSG 1", "PSG 2", "PSG 3", "NOISE" };
 static const char *const slot_names[NSLOT] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6",
                                               "32X 11", "32X 12", "32X 13", "32X 14" };
 static int drum_pick;                   /* X on DRUMS: the sample it plays next */
@@ -277,6 +298,32 @@ static void draw_envelope(int x, int y, int w, int h, const fm_op *o, uint8_t co
 
 /* ------------------------------------------------------------ the library */
 
+static const char *target_path(void)
+{
+    if (target == DRUMS_T) return "";
+    return chan_path[shown_ch()];
+}
+
+enum { PART_ROWS = 1, PART_LIST = 2, PART_PANEL = 4 };
+static int part_dirty, drawn_cursor = -1;
+static int extra_row = -1;              /* PART_ROWS: one more row to draw again */
+
+/* list entry i is the file the target has */
+static int is_loaded(int i)
+{
+    if (i < 0 || i >= lib_count || lib_is_dir(i)) return 0;
+    char rel[PATH_MAX_ + NAME_MAX + 2];
+    if (IS_PSG(target)) {
+        if (!psg_from[target - PSG_T]) return 0;
+        lib_rel(i, rel);
+        return path_hash(rel) == psg_from[target - PSG_T];
+    }
+    const char *t = target_path();
+    if (!t[0]) return 0;
+    lib_rel(i, rel);
+    return !strcmp(rel, t);
+}
+
 static void set_origin(int c, const char *rel)
 {
     strncpy(chan_path[c], rel, sizeof chan_path[c] - 1);
@@ -307,23 +354,37 @@ static void apply_to_target(const fm_patch *p, const char *rel)
 static void load_cursor(void)
 {
     if (lib_is_dir(cursor) || target == DRUMS_T) return;
+    for (int r = 0; r < LIST_ROWS; r++)          /* (the old mark goes) */
+        if (is_loaded(top + r)) extra_row = top + r;
+    part_dirty |= PART_ROWS | PART_PANEL;
     fm_patch p;
-    int e = lib_load(cursor, &p);
-    if (e) {
+    psg_patch *ps = &psg_shown;     /* (shown only for a PSG target, which then has it) */
+    int e = lib_load_any(cursor, &p, ps);
+    if (e != LOAD_FM && e != LOAD_PSG) {
         say_err("CANNOT READ THAT FILE:", e);
         return;
     }
     char rel[PATH_MAX_ + NAME_MAX + 2];
     lib_rel(cursor, rel);
+    if (IS_PSG(target) != (e == LOAD_PSG)) {    /* the wrong kind for the target */
+        say(e == LOAD_PSG ? "A PSG INSTRUMENT: PRESS C FOR PSG 1-3/NOISE"
+                          : "AN FM PATCH: PRESS C FOR AN FM CHANNEL");
+        return;
+    }
+    if (e == LOAD_PSG) {
+        int c = target - PSG_T;
+        lib_psg_set(c, ps);
+        psg_from[c] = path_hash(rel);
+        strncpy(psg_name[c], base_name(rel), sizeof psg_name[c] - 1);
+        psg_name[c][sizeof psg_name[c] - 1] = 0;
+        return;
+    }
     apply_to_target(&p, rel);
     voice = p;
 }
 
 /* The library is drawn in parts, so moving the cursor, scrolling or loading
  * a patch redraws only what changed (the Genesis-only build draws slowly). */
-enum { PART_ROWS = 1, PART_LIST = 2, PART_PANEL = 4 };
-static int part_dirty, drawn_cursor = -1;
-
 static void lib_row(int i)                      /* row i of the list, cleared first */
 {
     int r = i - top;
@@ -333,6 +394,8 @@ static void lib_row(int i)                      /* row i of the list, cleared fi
     if (i >= lib_count) return;
     if (i == cursor)
         gfx_rect(2, y - 1, 186, CHAR_H, COL_CURSOR);
+    if (is_loaded(i))                           /* the target's file: a green mark */
+        gfx_rect(1, y, 3, CHAR_H - 2, COL_GREEN);
     if (lib_is_dir(i)) {                        /* a folder: a tab and a name in blue */
         gfx_rect(6, y + 1, 4, 2, COL_HEAD);
         gfx_rect(6, y + 2, 9, 5, COL_HEAD);
@@ -367,6 +430,59 @@ static void lib_list(void)                      /* every row and the scroll bar 
     }
 }
 
+/* a PSG sequence as bars (lo..hi), the loop's step marked under it */
+static void psg_graph(int x, int y, int w, int h, const psg_seq *q, int lo, int hi, uint8_t col)
+{
+    gfx_rect(x, y, w, h, COL_PANEL2);
+    if (!q->len) { gfx_text(x + 3, y + h / 2 - 3, "-", COL_DIM); return; }
+    int bw = w / q->len;
+    if (bw < 1) bw = 1;
+    if (bw > 6) bw = 6;
+    int zero = y + h - 1 - (0 - lo) * (h - 1) / (hi - lo);
+    if (zero > y + h - 1) zero = y + h - 1;
+    for (int i = 0; i < q->len && (i + 1) * bw <= w; i++) {
+        int v = q->v[i];
+        if (v < lo) v = lo;
+        if (v > hi) v = hi;
+        int py = y + h - 1 - (v - lo) * (h - 1) / (hi - lo);
+        int t = py < zero ? py : zero, b = py < zero ? zero : py;
+        gfx_rect(x + i * bw, t, bw > 1 ? bw - 1 : 1, b - t + 1, col);
+    }
+    if (q->loop < q->len && (q->loop + 1) * bw <= w)
+        gfx_rect(x + q->loop * bw, y + h + 1, bw > 1 ? bw - 1 : 1, 2, COL_HI);
+}
+
+static void psg_panel(int px)
+{
+    int c = target - PSG_T;
+    char t[24] = "MIDI CH ";
+    *fmt_num(t + 8, 7 + c) = 0;
+    gfx_text(px, 32, t, COL_DIM);
+    if (!psg_name[c][0]) {
+        gfx_text(px, 48, "NO INSTRUMENT:", COL_HI);
+        gfx_text(px, 60, "A PLAIN TONE AT THE", COL_TEXT);
+        gfx_text(px, 70, "KEY'S VOLUME.", COL_TEXT);
+        gfx_text(px, 86, "CHOOSE A .DMP PSG", COL_TEXT);
+        gfx_text(px, 96, "INSTRUMENT FILE", COL_TEXT);
+        gfx_text(px, 106, "(DEFLEMASK, GENESIS", COL_TEXT);
+        gfx_text(px, 116, "OR MASTER SYSTEM).", COL_TEXT);
+        gfx_text(px, 132, "NEEDS THE NEW", COL_DIM);
+        gfx_text(px, 142, "TEENSY FIRMWARE", COL_DIM);
+        return;
+    }
+    gfx_text_n(px, 44, psg_name[c], 19, COL_HEAD);
+    gfx_text(px, 58, "VOLUME", COL_DIM);
+    psg_graph(px, 68, 112, 22, &psg_shown.vol, 0, 15, COL_GREEN);
+    gfx_text(px, 98, psg_shown.arp_fixed ? "NOTES (FIXED)" : "ARPEGGIO", COL_DIM);
+    psg_graph(px, 108, 112, 22, &psg_shown.arp, psg_shown.arp_fixed ? 0 : -12,
+              psg_shown.arp_fixed ? 96 : 12, COL_ORANGE);
+    if (c == 3) {
+        gfx_text(px, 138, "NOISE: HIGH = WHITE", COL_DIM);
+        psg_graph(px, 148, 112, 10, &psg_shown.noise, 0, 1, COL_BLUE);
+    }
+    gfx_text(px, 168, "YELLOW: THE LOOP", COL_DIM);
+}
+
 static void lib_panel(void)                     /* the target and its voice */
 {
     int px = 200;
@@ -394,6 +510,10 @@ static void lib_panel(void)                     /* the target and its voice */
         if (synth_count > 17) gfx_text(px, 44 + 17 * 9, "...", COL_DIM);
         return;
     }
+    if (IS_PSG(target)) {
+        psg_panel(px);
+        return;
+    }
     char t[40], *o = t;
     o = (char *)memcpy(o, "ALG ", 4) + 4; o = fmt_num(o, voice.alg);
     o = (char *)memcpy(o, "  FB ", 5) + 5; o = fmt_num(o, voice.fb); *o = 0;
@@ -414,8 +534,8 @@ static void lib_footer(void)
     if (lib_count && lib_is_dir(cursor))
         h = lib_path[0] ? "A OPEN THE FOLDER  B UP  START MENU" : "A OPEN THE FOLDER  START MENU";
     else if (lib_count)
-        h = lib_path[0] ? "UP/DN PATCH  C CHAN  A EDIT  B UP  X HEAR"
-                        : "UP/DN PATCH  C CHAN  A EDIT  X HEAR  START MENU";
+        h = lib_path[0] ? "UP/DN PATCH  A PICK/EDIT  C CHAN  B UP  X HEAR"
+                        : "UP/DN PATCH  A PICK/EDIT  C CHAN  X HEAR  START MENU";
     else
         h = lib_path[0] ? "B: BACK UP A FOLDER" : "A: LOOK AGAIN   START: MENU";
     if (h == footer_shown && message_timer <= 0) return;
@@ -454,8 +574,10 @@ static void draw_library_parts(void)
         lib_list();
     } else if (part_dirty & PART_ROWS) {
         if (drawn_cursor != cursor) lib_row(drawn_cursor);
+        if (extra_row >= 0 && extra_row != cursor && extra_row != drawn_cursor) lib_row(extra_row);
         lib_row(cursor);
     }
+    extra_row = -1;
     if (part_dirty & PART_PANEL) lib_panel();
     lib_footer();
     drawn_cursor = cursor;
@@ -490,7 +612,8 @@ static void library_input(uint16_t p)
     if (p & PAD_C) {
         target = next_target(target, 0);
         slot_read(shown_ch(), &voice);
-        part_dirty |= PART_PANEL;
+        if (IS_PSG(target)) lib_psg_get(target - PSG_T, &psg_shown);
+        part_dirty |= PART_PANEL | PART_LIST;      /* (the marks too) */
     }
     if (p & PAD_START) {
         overlay = OV_MENU;
@@ -507,6 +630,8 @@ static void library_input(uint16_t p)
         for (int i = 0; i < lib_count; i++)
             if (lib_is_dir(i) && !strcmp(lib_name(i), from)) cursor = i;
         if (cursor >= LIST_ROWS) top = cursor - LIST_ROWS / 2;
+        if (top > lib_count - LIST_ROWS) top = lib_count - LIST_ROWS;
+        if (top < 0) top = 0;
         load_timer = -1;
         dirty = 1;
         return;
@@ -522,11 +647,20 @@ static void library_input(uint16_t p)
     if ((p & PAD_A) && lib_is_dir(cursor)) {
         if (lib_enter(cursor) < 0) say("COULD NOT OPEN THAT FOLDER (SD CARD)");
         cursor = top = 0;
-        load_timer = -1;
+        load_timer = lib_count && !lib_is_dir(0) ? 10 : -1;     /* (the first file: chosen) */
         dirty = 1;
         return;
     }
-    if (p & PAD_A) {
+    if ((p & PAD_A) && !is_loaded(cursor)) {     /* A on a file: choose it now */
+        load_timer = -1;
+        load_cursor();
+        return;
+    }
+    if ((p & PAD_A) && IS_PSG(target)) {
+        say("PSG INSTRUMENTS: NO EDITOR YET");
+        return;
+    }
+    if (p & PAD_A) {                            /* A on the chosen one: edit it */
         screen = SCR_EDITOR;
         ed_row = ed_col = 0;
         ed_changing = 0;
@@ -762,8 +896,8 @@ static void draw_help(void)
         "LIBRARY",
         "UP/DOWN     CHOOSE A PATCH (IT LOADS)",
         "LEFT/RIGHT  A PAGE UP / DOWN",
-        "C           TARGET CHANNEL 1-6 / ALL",
-        "A           EDIT THE TARGET'S VOICE",
+        "C           TARGET: CH 1-6, ALL, PSG, NOISE",
+        "A           CHOOSE IT (AGAIN: EDIT IT)",
         "Y           DELETE THE PATCH FILE",
         "X           HEAR IT (MIDDLE C, HOLD)",
         "START       MENU: GUIDE, SETTINGS, MONITOR",
@@ -1201,6 +1335,7 @@ static void preview(void)
     if (down && preview_note < 0) {
         int mch = settings[SET_MODE] ? settings[SET_POLY_CH] : (target == ALL_CH ? 0 : target);
         if (target >= PWM_T && target < PWM_T + 4) mch = 10 + target - PWM_T;   /* MIDI 11-14 */
+        if (IS_PSG(target)) mch = 6 + target - PSG_T;                           /* MIDI 7-10 */
         int note = 60;
         if (target == DRUMS_T) {                /* the kit: each sample in turn */
             if (!synth_count) return;

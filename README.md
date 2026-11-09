@@ -30,7 +30,8 @@ the guide, the settings and the MIDI monitor, with the same Teensy firmware
 play nothing), and the screen redraws more slowly (about 0.1-0.2 s), since the
 Genesis's 68000 draws it as well as running the sound and the port.
 
-Sample patches: `release/sample_patches.zip` (42 patches in folders, plus 168
+Sample patches: `release/sample_patches.zip` (42 FM patches in folders, 17 PSG
+instruments in `PSG` and `PSG Noise`, plus 168
 in `Variations`; unzip it at
 the top of the SD card, it makes `MIDI_PATCHES/Samples`), made by
 `tools/make_sample_patches.py` from classic YM2612 recipes.
@@ -45,6 +46,18 @@ the top of the SD card, it makes `MIDI_PATCHES/Samples`), made by
 
 The top right corner says `GENMDM: STOCK` (its own firmware) or
 `GENMDM: MIDI` (ours) once it hears the interface.
+
+## PSG instruments (MIDI channels 7-10, our firmware)
+
+The PSG (three square-wave voices and the noise) can play **DefleMask
+`.dmp` "standard" instruments** (Genesis or Master System): a volume
+sequence, an arpeggio (or fixed notes) and, for the noise, white/periodic
+steps, each stepped once a frame while a note sounds, with loops. On the
+home screen, C until the target says `PSG 1`, `PSG 2`, `PSG 3` or `NOISE`
+(MIDI channels 7, 8, 9, 10), then choose a `.dmp` PSG instrument: the panel
+draws its sequences, X hears it. Without one a PSG note is a plain tone at
+the key's volume, as before. 17 samples are in `sample_patches.zip`
+(`Samples/PSG`, `Samples/PSG Noise`). No PSG editor yet.
 
 ## Our Teensy firmware (optional)
 
@@ -105,7 +118,7 @@ avr-gcc); it uses PJRC's USB MIDI code (MIT).
 | Button | Library | Editor |
 |---|---|---|
 | D-pad | choose a patch (it loads); left/right a page | choose a setting; while changing one: up/down by 1, left/right by 10 |
-| A | edit the target channel's voice | change the setting / done |
+| A | choose the patch now (green mark); on the chosen one: edit it | change the setting / done |
 | B | up a folder (3-button pad, top folder: the controls) | back to the library (while changing: done) |
 | C | target channel 1-6 / ALL | next channel |
 | X | hear it: middle C while held | value up by 10 |

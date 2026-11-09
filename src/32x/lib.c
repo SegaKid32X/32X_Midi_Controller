@@ -133,20 +133,43 @@ int lib_find(const char *name)
     return -1;
 }
 
-int lib_load(int i, fm_patch *p)
+static uint8_t data[512];
+
+static void get_bytes(int at, uint8_t *b, int n)        /* from the 68000's buffer */
+{
+    for (int off = 0; off < n; off += 6) {
+        md_cmd(CMD_BUF_GET, (uint16_t)(at + off), 0, 0);
+        uint16_t w[3] = { md_p(C_P1), md_p(C_P2), md_p(C_P3) };
+        for (int k = 0; k < 6 && off + k < n; k++)
+            b[off + k] = (uint8_t)(k & 1 ? w[k >> 1] : w[k >> 1] >> 8);
+    }
+}
+
+static int load_data(int i)                     /* file i into data: its size, or -error */
 {
     int r = md_cmd(CMD_LOAD, (uint16_t)i, 0, 0);
-    if (r) return r;
+    if (r) return -r;
     int size = md_p(C_P1);
-    if (size > 512) size = 512;
-    static uint8_t data[512];
-    for (int off = 0; off < size; off += 6) {
-        md_cmd(CMD_BUF_GET, (uint16_t)(BUF_DATA + off), 0, 0);
-        uint16_t w[3] = { md_p(C_P1), md_p(C_P2), md_p(C_P3) };
-        for (int k = 0; k < 6 && off + k < size; k++)
-            data[off + k] = (uint8_t)(k & 1 ? w[k >> 1] : w[k >> 1] >> 8);
-    }
+    if (size > (int)sizeof data) size = sizeof data;
+    get_bytes(BUF_DATA, data, size);
+    return size;
+}
+
+int lib_load(int i, fm_patch *p)
+{
+    int size = load_data(i);
+    if (size < 0) return -size;
     return patch_parse(p, patch_format_of(lib_name(i)), data, size) ? ERR_RANGE : 0;
+}
+
+int lib_load_any(int i, fm_patch *fm, psg_patch *psg)
+{
+    int size = load_data(i);
+    if (size < 0) return -size;
+    int fmt = patch_format_of(lib_name(i));
+    if (!patch_parse(fm, fmt, data, size)) return LOAD_FM;
+    if (fmt == FMT_DMP && !psg_parse(psg, data, size)) return LOAD_PSG;
+    return ERR_RANGE;
 }
 
 static int put_bytes(int at, const uint8_t *b, int n)
@@ -179,6 +202,23 @@ int lib_save(const char *name, const fm_patch *p)
     if (!r) r = put_bytes(BUF_DATA, data, len);
     if (!r) r = md_cmd(CMD_SAVE, (uint16_t)len, 0, 0);
     return r;
+}
+
+int lib_psg_set(int ch, const psg_patch *p)
+{
+    uint8_t b[PSG_PACKED_MAX];
+    int n = p ? psg_pack(p, b) : 0;
+    int r = n ? put_bytes(BUF_DATA, b, n) : 0;
+    return r ? r : md_cmd(CMD_PSG_SET, (uint16_t)ch, (uint16_t)n, 0);
+}
+
+int lib_psg_get(int ch, psg_patch *p)
+{
+    int n = md_cmd(CMD_PSG_GET, (uint16_t)ch, 0, 0);
+    uint8_t b[PSG_PACKED_MAX];
+    if (n <= 0 || n > (int)sizeof b) { psg_unpack(p, b, 0); return 0; }
+    get_bytes(BUF_DATA, b, n);
+    return !psg_unpack(p, b, n);
 }
 
 int lib_delete(const char *name)

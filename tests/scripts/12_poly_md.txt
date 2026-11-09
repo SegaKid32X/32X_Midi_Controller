@@ -1,7 +1,8 @@
 # rom: mdsamples
 # pad6
 # check: poly
-# POLY mode: a patch chosen in GENMDM mode (Bells/Glockenspiel, on CH 1) is
+# POLY mode: a patch chosen in GENMDM mode (Bells/Glockenspiel, chosen on
+# entering the folder, on CH 1) is
 # what every note of a chord plays once POLY is on - all six FM channels.
 run 300
 hello
@@ -9,11 +10,7 @@ run 20
 press down 4
 run 20
 press a 4
-run 60
-press down 4
-run 30
-press up 4
-run 60
+run 150
 shot glock_ch1
 press start 4
 run 20

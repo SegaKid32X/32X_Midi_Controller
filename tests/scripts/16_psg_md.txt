@@ -1,0 +1,60 @@
+# rom: mdsamples
+# pad6
+# check: psg
+# PSG instruments: C to PSG 1, the PSG folder (the 9th: the test file
+# system sorts by character code, PSG before PLUCK; its first file, Arp Major,
+# is chosen), a note on MIDI channel 7 plays its arpeggio and volume.
+run 300
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+press c 4
+run 20
+run 30
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+press down 4
+run 12
+run 40
+press a 4
+run 450
+shot psg_panel
+hello
+run 10
+audiomark
+midi 96 3C 64
+run 3
+dumpram p1
+run 2
+dumpram p2
+run 2
+dumpram p3
+run 2
+dumpram p4
+run 20
+loud 150
+shot psg_note
+midi 86 3C 00
+run 10
+telem

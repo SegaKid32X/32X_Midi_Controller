@@ -3,7 +3,8 @@
 variations of each) into a folder laid out as for the SD card:
 
     OUT/Bass/..., OUT/Keys/..., ... and OUT/Variations/ (every patch
-    and its variations in one big folder: scrolling a long list)
+    and its variations in one big folder: scrolling a long list);
+    OUT/PSG/ and OUT/PSG Noise/: PSG instruments (.dmp, DefleMask standard)
 
 usage: make_sample_patches.py OUT_DIR [--variations N]
 
@@ -114,6 +115,47 @@ R = [
 
 DT_FILE = {-3: 0, -2: 1, -1: 2, 0: 3, 1: 4, 2: 5, 3: 6}
 
+# PSG instruments (.dmp, DefleMask "standard", Genesis): (folder, name,
+# volume steps, volume loop, arpeggio steps (semitones), arpeggio loop,
+# noise steps (1 = white), noise loop); loop None = stay on the last step
+P = [
+    ("PSG", "Lead", [15, 14, 13, 12, 12, 11, 11, 10], None, [], None, [], None),
+    ("PSG", "Pluck", [15, 12, 10, 8, 6, 5, 4, 3, 2, 1, 0], None, [], None, [], None),
+    ("PSG", "Organ", [13], None, [], None, [], None),
+    ("PSG", "Swell", [2, 4, 6, 8, 10, 12, 14, 15], None, [], None, [], None),
+    ("PSG", "Tremolo", [12, 13, 14, 15, 14, 13, 12, 11, 10, 11], 0, [], None, [], None),
+    ("PSG", "Echo", [15, 10, 6, 3, 0, 0, 9, 6, 3, 1, 0, 0, 5, 3, 1, 0], None, [], None, [], None),
+    ("PSG", "Arp Major", [14, 13, 12, 12], None, [0, 0, 4, 4, 7, 7], 0, [], None),
+    ("PSG", "Arp Minor", [14, 13, 12, 12], None, [0, 0, 3, 3, 7, 7], 0, [], None),
+    ("PSG", "Octave", [14, 13, 12], None, [0, 0, 12, 12], 0, [], None),
+    ("PSG", "Pitch Drop", [15, 14, 13, 12, 11, 10], None, [12, 9, 6, 3, 0], None, [], None),
+    ("PSG", "Bleep", [15, 15, 13, 0], None, [12], None, [], None),
+    ("PSG Noise", "Hi-Hat", [14, 8, 3, 0], None, [], None, [1], None),
+    ("PSG Noise", "Open Hat", [14, 12, 10, 8, 6, 5, 4, 3, 2, 1, 0], None, [], None, [1], None),
+    ("PSG Noise", "Snare", [15, 12, 9, 7, 5, 3, 2, 1, 0], None, [], None, [1], None),
+    ("PSG Noise", "Kick", [15, 11, 7, 3, 0], None, [], None, [0], None),
+    ("PSG Noise", "Crash", [15, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0], None, [], None, [1], None),
+    ("PSG Noise", "Zap", [15, 12, 9, 6, 3, 0], None, [], None, [0, 1], 0),
+]
+
+
+def dmp_psg(vol, vloop, arp, aloop, noise, nloop):
+    out = bytearray([0x0B, 0x02, 0x00])     # version 11, Genesis, standard
+
+    def seq(vals, loop, offset):
+        b = bytearray([len(vals)])
+        for v in vals:
+            b += ((v + offset) & 0xFFFFFFFF).to_bytes(4, "little")
+        if vals:
+            b.append(0xFF if loop is None else loop)
+        return b
+    out += seq(vol, vloop, 0)
+    out += seq(arp, aloop, 12)              # (arpeggio values are stored + 12)
+    out.append(0)                           # arpeggio: relative
+    out += seq(noise, nloop, 0)
+    out.append(0)                           # no wavetable
+    return bytes(out)
+
 
 def tfi(alg, fb, ops):
     out = bytearray([alg, fb])
@@ -166,7 +208,12 @@ def main() -> int:
             a, f, o = variation(alg, fb, ops, k, rnd)
             (big / f"{name} {k + 1}.tfi").write_bytes(tfi(a, f, o))
             n += 1
-    print(f"make_sample_patches: {len(R)} patches, {n} files in {out}")
+    for cat, name, vol, vl, arp, al, nz, nl in P:
+        d = out / cat
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{name}.dmp").write_bytes(dmp_psg(vol, vl, arp, al, nz, nl))
+        n += 1
+    print(f"make_sample_patches: {len(R)} FM patches, {len(P)} PSG instruments, {n} files in {out}")
     return 0
 
 

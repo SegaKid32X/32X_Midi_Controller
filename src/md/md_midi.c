@@ -19,6 +19,7 @@
  */
 #include "md.h"
 #include "midi_tables.h"
+#include "patch.h"
 
 midi_settings_t ms = { MODE_GENMDM, 0, 0, 1, 0, 2 };
 
@@ -66,6 +67,14 @@ static uint8_t special3;                /* channel 3 special mode */
 static uint8_t sp_keys;                 /* its operators keyed on (0x28's slot bits) */
 static const uint8_t sp_slot[4] = { 0x10, 0x40, 0x20, 0x80 };  /* OP1..OP4 */
 static uint8_t psg_note[4], psg_vel[4];
+
+/* PSG instruments (CMD_PSG_SET): their sequences step once a frame
+ * (midi_frame) while a note sounds; without one, a note is just a tone at
+ * the velocity's volume */
+static psg_patch psgi[4];
+static uint8_t psg_has[4], psg_mch[4];
+static uint16_t psg_step[4];
+static int16_t psg_said_vol[4], psg_said_note[4], psg_said_noise[4];
 static uint16_t rnd = 0xACE1;
 
 /* pitch in 1/16 semitones above middle C */
@@ -146,8 +155,107 @@ static void psg_volume(int c, int vel)
     psg_write((uint8_t)(0x90 | c << 5 | v));
 }
 
+static int seq_at(const psg_seq *q, int step)     /* the step's index, -1: none */
+{
+    if (!q->len) return -1;
+    if (step < q->len) return step;
+    if (q->loop >= q->len) return q->len - 1;           /* (no loop: stay on the last) */
+    return q->loop + (step - q->len) % (q->len - q->loop);
+}
+
+/* the instrument's state at psg_step[c]: the volume, the pitch, the noise */
+static void psg_apply(int c)
+{
+    psg_patch *p = &psgi[c];
+    int i = seq_at(&p->vol, psg_step[c]);
+    int v = i < 0 ? 15 : p->vol.v[i];
+    if (ms.velocity) v = (v * psg_vel[c] + 64) / 127;
+    if (v != psg_said_vol[c]) {
+        psg_write((uint8_t)(0x90 | c << 5 | (15 - v)));
+        psg_said_vol[c] = (int16_t)v;
+    }
+    int note = psg_note[c];
+    i = seq_at(&p->arp, psg_step[c]);
+    if (i >= 0) note = p->arp_fixed ? p->arp.v[i] + 12 : note + p->arp.v[i];
+    if (note < 0) note = 0;
+    if (note > 127) note = 127;
+    if (c < 3) {
+        if (note != psg_said_note[c]) {
+            psg_tone_set(c, note, psg_mch[c]);
+            psg_said_note[c] = (int16_t)note;
+        }
+    } else {
+        i = seq_at(&p->noise, psg_step[c]);
+        int white = i >= 0 ? (p->noise.v[i] & 1) : !((note / 12) & 1);
+        int nz = 0xE0 | (white ? 4 : 0) | (note % 4);
+        if (nz != psg_said_noise[c]) {
+            psg_write((uint8_t)nz);
+            psg_said_noise[c] = (int16_t)nz;
+        }
+    }
+}
+
+/* once a frame (md_main.c): the instruments' next steps */
+void midi_frame(void)
+{
+    for (int c = 0; c < 4; c++)
+        if (psg_has[c] && psg_vel[c]) {
+            if (psg_step[c] < 30000) psg_step[c]++;
+            psg_apply(c);
+        }
+}
+
+/* an instrument for PSG channel c (0-2 tone, 3 noise) from the compact form
+ * (patch.h, psg_pack); an empty one: none */
+int midi_psg_set(int c, const uint8_t *in, int len)
+{
+    if (c < 0 || c > 3) return -1;
+    psg_patch *p = &psgi[c];
+    for (unsigned i = 0; i < sizeof *p; i++) ((uint8_t *)p)[i] = 0;
+    int n = 0;
+    if (len < 7) { psg_has[c] = 0; return 0; }
+    p->arp_fixed = in[n++];
+    psg_seq *q[3] = { &p->vol, &p->arp, &p->noise };
+    for (int k = 0; k < 3; k++) {
+        if (n + 2 > len) return -1;
+        int l = in[n++];
+        q[k]->len = (uint8_t)(l > PSG_STEPS ? PSG_STEPS : l);
+        q[k]->loop = in[n++];
+        if (n + l > len) return -1;
+        for (int i = 0; i < l; i++, n++) if (i < PSG_STEPS) q[k]->v[i] = (int8_t)in[n];
+    }
+    psg_has[c] = (uint8_t)(p->vol.len || p->arp.len || p->noise.len);
+    return 0;
+}
+
+/* its compact form into out (PSG_PACKED_MAX): the length (0: none) */
+int midi_psg_get(int c, uint8_t *out)
+{
+    if (c < 0 || c > 3 || !psg_has[c]) return 0;
+    psg_patch *p = &psgi[c];
+    int n = 0;
+    out[n++] = p->arp_fixed;
+    psg_seq *q[3] = { &p->vol, &p->arp, &p->noise };
+    for (int k = 0; k < 3; k++) {
+        out[n++] = q[k]->len;
+        out[n++] = q[k]->loop;
+        for (int i = 0; i < q[k]->len; i++) out[n++] = (uint8_t)q[k]->v[i];
+    }
+    return n;
+}
+
 static void psg_on(int c, int note, int vel, int midi_ch)
 {
+    if (psg_has[c]) {                           /* an instrument: its sequences */
+        psg_note[c] = (uint8_t)note;
+        psg_vel[c] = (uint8_t)vel;
+        psg_mch[c] = (uint8_t)midi_ch;
+        psg_step[c] = 0;
+        psg_said_vol[c] = psg_said_note[c] = psg_said_noise[c] = -1;
+        psg_apply(c);
+        changed();
+        return;
+    }
     if (c < 3) {
         psg_tone_set(c, note, midi_ch);
     } else {
@@ -252,7 +360,8 @@ static void bend_to(int mch, int value)
     } else if (mch < 6) {
         if (fm[mch].on || fm[mch].held) fm_pitch(mch, fm[mch].note, mch, 0xA4, 0xA0);
     } else if (mch < 9 && psg_vel[mch - 6]) {
-        psg_tone_set(mch - 6, psg_note[mch - 6], mch);
+        if (psg_has[mch - 6]) { psg_said_note[mch - 6] = -1; psg_apply(mch - 6); }
+        else psg_tone_set(mch - 6, psg_note[mch - 6], mch);
     }
     changed();
 }

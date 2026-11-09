@@ -200,6 +200,11 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
             return ERR_RANGE;
         }
         return 0;
+    case CMD_PSG_SET:
+        if (p2 > BUF_SIZE - BUF_DATA) return ERR_RANGE;
+        return midi_psg_set(p1, file_buf + BUF_DATA, p2) ? ERR_RANGE : 0;
+    case CMD_PSG_GET:
+        return (unsigned)midi_psg_get(p1, file_buf + BUF_DATA);
     case CMD_SETTING: {
         uint8_t *s = (uint8_t *)&ms;
         if (p1 >= SET_COUNT) return ERR_RANGE;
@@ -218,6 +223,9 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
 static int was_vb;
 static uint16_t vblanks;
 #ifdef MD_ONLY
+volatile uint16_t vint_count;           /* frames: the vertical interrupt counts them */
+#endif
+#ifdef MD_ONLY
 /* (no 32X: the screens can be busy for frames, so presses queue up rather
  * than merge; src/mdonly/hw_md.c hands them over one at a time) */
 uint16_t pad_q[8], pad_held;
@@ -235,6 +243,16 @@ static int frame_tick(void)
     int vb = (VDP_CTRL & VDP_STATUS_VB) != 0;
     int edge = vb && !was_vb;
     was_vb = vb;
+#ifdef MD_ONLY
+    /* (while the screens draw, the vblank flag - 2.4 ms a frame - can pass
+     * between two looks: the vertical interrupt counts every frame,
+     * src/mdonly/crt.s) */
+    static uint16_t seen;
+    uint16_t now = vint_count;
+    edge = now != seen;
+    seen = now;
+    (void)vb;
+#endif
     if (!edge) return 0;
     uint16_t pad = pad_read();
     uint16_t ack = COMM16(C_CMD) >> 8;
@@ -252,8 +270,13 @@ static int frame_tick(void)
     COMM16(C_PAD) = pad | latched;
     if (!!(md_flags & FL_PAD3) != !pad6)
         set_flag(FL_PAD3, !pad6);
+#ifdef MD_ONLY
+    vblanks = vint_count;
+#else
     vblanks++;
+#endif
     rx_frame();
+    midi_frame();
     /* test telemetry (tests/harness.c reads work RAM 0xFFFF00) */
     volatile uint16_t *t = (volatile uint16_t *)0xFFFF00;
     t[0] = 0x5354;

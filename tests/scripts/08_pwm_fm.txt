@@ -1,7 +1,15 @@
-# The 32X's software FM: C to "32X 11", a patch loads into it, X plays it
+# The 32X's software FM: C to "32X 11" (past ALL and the PSG targets), a patch loads into it, X plays it
 # through the PWM (and it stops), the editor works on it.
 # pad6
 run 300
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
+press c 4
+run 4
 press c 4
 run 4
 press c 4

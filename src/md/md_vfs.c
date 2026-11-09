@@ -3,9 +3,9 @@
  * first 512 KiB (which the 68000 sees at 0x880000), and writes "PATFS@" and
  * the offset into the ROM header at 0x1C8.
  *
- * Layout (big-endian): "PATFS1\0\0", u32 count, then count entries of 40
- * bytes: name[32] (zero-padded), u32 offset (from the start of the ROM),
- * u32 length.
+ * Layout (big-endian): "PATFS1\0\0", u32 count, then count entries of 136
+ * bytes: name[128] (zero-padded: a path, "folder/file.tfi"), u32 offset
+ * (from the start of the ROM), u32 length.
  */
 #include "md.h"
 
@@ -39,8 +39,8 @@ int vfs_scan(void)
 
 const uint8_t *vfs_file(int i, const char **name, uint16_t *len)
 {
-    const uint8_t *e = dir + 12 + i * 40;
+    const uint8_t *e = dir + 12 + i * 136;
     *name = (const char *)e;
-    *len = (uint16_t)rd32(e + 36);
-    return ROM + rd32(e + 32);
+    *len = (uint16_t)rd32(e + 132);
+    return ROM + rd32(e + 128);
 }

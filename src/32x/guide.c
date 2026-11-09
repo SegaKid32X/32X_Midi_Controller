@@ -58,8 +58,8 @@ static const page_t pages[] = {
         "ON THE HOME SCREEN, UP AND DOWN MOVE",
         "THROUGH THE PATCH FILES.",
         "",
-        "STOP ON ONE AND IT LOADS INTO THE TARGET",
-        "CHANNEL: PLAY A KEY AND YOU HEAR IT.",
+        "STOP ON ONE (OR PRESS A): IT LOADS INTO",
+        "THE TARGET, MARKED GREEN. PLAY A KEY.",
         "",
         "LEFT AND RIGHT JUMP A PAGE OF FILES.",
         "FOLDERS (BLUE, AT THE TOP): A OPENS ONE,",
@@ -77,7 +77,7 @@ static const page_t pages[] = {
         "" },
       PAD_C, "TRY IT: PRESS C" },
     { "EDITING A SOUND", {
-        "A OPENS THE EDITOR FOR THE TARGET.",
+        "A ON THE CHOSEN PATCH OPENS THE EDITOR.",
         "",
         "D-PAD   CHOOSE A SETTING",
         "A       CHANGE IT: UP/DOWN BY 1, LEFT/",
@@ -155,6 +155,17 @@ static const page_t pages[] = {
         "X PLAYS EACH ONE. VOLUME: SETTINGS." },
       0, 0 },
     #endif
+    { "PSG INSTRUMENTS", {
+        "C ON TO PSG 1, PSG 2, PSG 3 OR NOISE (MIDI",
+        "CHANNELS 7-10), THEN CHOOSE A .DMP PSG",
+        "INSTRUMENT (DEFLEMASK): ITS VOLUME AND",
+        "ARPEGGIO STEPS, A FRAME EACH, PLAY WITH",
+        "EVERY NOTE ON THAT CHANNEL; NOISE ALSO",
+        "STEPS WHITE / PERIODIC. THE PANEL DRAWS",
+        "THEM. SAMPLES: MIDI_PATCHES/SAMPLES/PSG.",
+        "NEEDS THE NEW TEENSY FIRMWARE.",
+        "" },
+      PAD_C, "TRY IT: PRESS C" },
     { "THE NEW TEENSY FIRMWARE", {
         "WITH GENMDM'S OWN FIRMWARE THE TEENSY",
         "DECIDES HOW MIDI PLAYS. OURS SENDS THE",

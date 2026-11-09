@@ -9,7 +9,7 @@
 #include "md.h"
 
 #ifdef MD_ONLY
-#define POOL_BYTES  9216        /* (the Genesis-only build: 64 KB of RAM holds the screen too) */
+#define POOL_BYTES  8192        /* (the Genesis-only build: 64 KB of RAM holds the screen too) */
 #else
 #define POOL_BYTES  40960
 #endif
@@ -86,6 +86,9 @@ static int add(const char *name, int len, int dir, int vfs_i)
     return 1;
 }
 
+_Static_assert(ED_DIR_BATCH * (1 + 9 + 2 + ED_NAME_MAX) < 2048,
+               "an EverDrive batch must fit its 2 KB FIFO (md_ed.c, ed_dir_batch)");
+
 /* the list's folders first (in their order), then its files: a stable
  * partition of the index arrays, through file_buf (free while scanning;
  * MAX_FILES x 2 bytes fit) */
@@ -116,9 +119,9 @@ static int scan_vfs(void)
                 const char *c = name;
                 int bad = 0;
                 while (*c && !bad) {
-                    char part[48];
+                    char part[128];
                     int k = 0;
-                    while (*c && *c != '/' && k < 47) part[k++] = *c++;
+                    while (*c && *c != '/' && k < 127) part[k++] = *c++;
                     part[k] = 0;
                     if (*c == '/') c++;
                     bad = junk_name(part);
@@ -172,7 +175,7 @@ int files_scan(void)
         return sub[0] ? ERR_SD : 0;     /* (saving makes it); a folder in it: an error */
     /* one pass, the entries streamed in batches; then folders first */
     for (int i = 0; i < total; ) {
-        int n = total - i > 64 ? 64 : total - i, k = 0;
+        int n = total - i > ED_DIR_BATCH ? ED_DIR_BATCH : total - i, k = 0;
         if (ed_dir_batch(i, n)) break;
         for (; k < n; k++) {
             char name[256];
@@ -182,7 +185,7 @@ int files_scan(void)
             if (is_dir < 0 || junk_name(name)) continue;    /* hidden, macOS's leftovers */
             int len = slen(name);
             if (!is_dir && !is_patch(name)) continue;
-            if (len > 127) { files_skipped++; continue; }
+            if (len > 127) { files_skipped++; continue; }  /* (cut at ED_NAME_MAX: too long) */
             add(name, len, is_dir, 0);
         }
         if (k < n) {                    /* the EverDrive stopped answering */

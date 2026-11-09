@@ -105,6 +105,12 @@ def run(script):
             failures.append(f"{s}: {', '.join(problems)}")
     if len(shots) > 1 and len(crcs) == 1:
         failures.append("every screenshot is the same")
+    for line in open(script):                   # "# check: psg": tests/check_psg.py
+        if line.startswith("# check: psg"):
+            c = subprocess.run([sys.executable, os.path.join(HERE, "check_psg.py"), out,
+                                os.path.join(ROOT, ELFS[rom])], capture_output=True, text=True)
+            if c.returncode:
+                failures.append(c.stdout.strip())
     for line in open(script):                   # "# check: poly": tests/check_poly.py
         if line.startswith("# check: poly"):
             c = subprocess.run([sys.executable, os.path.join(HERE, "check_poly.py"), out,

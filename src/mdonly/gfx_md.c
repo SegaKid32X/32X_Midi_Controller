@@ -113,7 +113,7 @@ static void vram_write_at(unsigned addr)
 void gfx_init(void)
 {
     static const uint16_t regs[] = {
-        0x8004, 0x8144,         /* no HINT; display on, mode 5, no VINT */
+        0x8004, 0x8164,         /* no HINT; display on, the vertical interrupt (frames), mode 5 */
         0x8230, 0x8407,         /* plane A 0xC000, plane B 0xE000 */
         0x8578, 0x8700,         /* sprites 0xF000; backdrop: colour 0 */
         0x8B08,                 /* the external interrupt (port 2's TH) on */
@@ -246,7 +246,7 @@ int gfx_text_n(int x, int y, const char *s, int max, uint8_t c)
     int n = 0;
     for (; *s && n < max; s++, n++, x += CHAR_W) {
         if (*s != ' ') glyph(x, y, (uint8_t)*s, c);
-        if ((n & 7) == 7 && poll_hook) poll_hook();
+        if ((n & 3) == 3 && poll_hook) poll_hook();
     }
     return n;
 }
@@ -273,7 +273,8 @@ void gfx_num(int x, int y, int v, uint8_t c)
     gfx_text(x, y, t, c);
 }
 
-/* the changed tiles into VRAM */
+/* the changed tiles into VRAM (as they are found: the CPU is the limit,
+ * blank or not) */
 void gfx_present(void)
 {
     uint16_t at = md_vblanks();
@@ -281,23 +282,24 @@ void gfx_present(void)
     for (int c = 0; c < 16; c++) sh[c] = solid_hash((unsigned)c);
     int next = -1;
     for (int t = 0; t < NTILES; t++) {
-        if ((t & 31) == 31 && poll_hook) poll_hook();
+        if ((t & 15) == 15 && poll_hook) poll_hook();
         unsigned s = solid[t];
         if (s == CLEAN && !first) continue;     /* (untouched since it went up) */
         uint32_t h = s >= CLEAN ? hash_tile(canvas + t * 8) : sh[s];
         if (s == DRAWN) solid[t] = CLEAN;
-        if (first || h != hash[t]) {
-            hash[t] = h;
-            if (t != next) vram_write_at((unsigned)t * 32);
-            if (s >= CLEAN) {
-                const uint32_t *p = canvas + t * 8;
-                for (int k = 0; k < 8; k++) VDP_DATA32 = p[k];
-            } else {
-                uint32_t v = fill_of(s);
-                for (int k = 0; k < 8; k++) VDP_DATA32 = v;
-            }
-            next = t + 1;
+        if (!first && h == hash[t]) continue;
+        hash[t] = h;
+        if (t != next) vram_write_at((unsigned)t * 32);
+        if (s >= CLEAN) {
+            const uint32_t *p = canvas + t * 8;
+            VDP_DATA32 = p[0]; VDP_DATA32 = p[1]; VDP_DATA32 = p[2]; VDP_DATA32 = p[3];
+            VDP_DATA32 = p[4]; VDP_DATA32 = p[5]; VDP_DATA32 = p[6]; VDP_DATA32 = p[7];
+        } else {
+            uint32_t v = fill_of(s);
+            VDP_DATA32 = v; VDP_DATA32 = v; VDP_DATA32 = v; VDP_DATA32 = v;
+            VDP_DATA32 = v; VDP_DATA32 = v; VDP_DATA32 = v; VDP_DATA32 = v;
         }
+        next = t + 1;
     }
     first = 0;
     gfx_draw_frames = (uint16_t)(at - clear_at);

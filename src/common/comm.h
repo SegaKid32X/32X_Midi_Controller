@@ -95,6 +95,10 @@
                              * reported (0xF9).
                              * P1 = 11: 5 bytes, the Teensy's pins that moved
                              * (ports B C D E F, a bit each) */
+#define CMD_PSG_SET     20  /* P1 = PSG channel (0-2 tone, 3 noise), P2 = length: its
+                             * instrument from BUF_DATA (patch.h, psg_pack; 0: none) */
+#define CMD_PSG_GET     21  /* P1 = PSG channel: its instrument into BUF_DATA -> the
+                             * length (0: none) */
 #define CMD_CRASH       31  /* (written by a crashing SH-2, see crt0.s) */
 
 #define BUF_NAME        0       /* 320 bytes: a path inside MIDI_PATCHES */

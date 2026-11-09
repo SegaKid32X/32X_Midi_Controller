@@ -27,13 +27,13 @@ def main() -> int:
     at = (len(rom) + 15) & ~15
     rom += b"\0" * (at - len(rom))
     head = bytearray(b"PATFS1\0\0" + struct.pack(">I", len(entries)))
-    data_at = at + len(head) + 40 * len(entries)
+    data_at = at + len(head) + 136 * len(entries)
     body = bytearray()
     for rel, f in entries:
         rel = rel.encode("ascii")
-        if len(rel) > 31:
-            sys.exit(f"mkvfs: {rel!r} is too long (31 characters at most)")
-        name = rel.ljust(32, b"\0")
+        if len(rel) > 127:
+            sys.exit(f"mkvfs: {rel!r} is too long (127 characters at most)")
+        name = rel.ljust(128, b"\0")
         blob = f.read_bytes()
         while (data_at + len(body)) % 4:
             body += b"\0"

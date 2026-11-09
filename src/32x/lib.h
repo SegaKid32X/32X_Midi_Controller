@@ -23,6 +23,13 @@ int  lib_is_dir(int i);
 void lib_rel(int i, char *out);         /* entry i's path inside MIDI_PATCHES */
 const char *base_name(const char *rel);
 int  lib_load(int i, fm_patch *p);      /* 0 or an error */
+#define LOAD_FM     0x100
+#define LOAD_PSG    0x101
+/* an FM patch (LOAD_FM, into fm) or a PSG instrument (LOAD_PSG, into psg),
+ * else an error */
+int  lib_load_any(int i, fm_patch *fm, psg_patch *psg);
+int  lib_psg_set(int ch, const psg_patch *p);   /* PSG channel ch's instrument (0: none) */
+int  lib_psg_get(int ch, psg_patch *p);         /* 1 if it has one */
 int  lib_save(const char *name, const fm_patch *p);    /* 0 or an error */
 int  lib_delete(const char *name);
 int  lib_find(const char *name);        /* index, or -1 */

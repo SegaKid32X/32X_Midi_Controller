@@ -83,6 +83,9 @@ extern midi_settings_t ms;
 void midi_init(void);
 void midi_byte(uint8_t b);
 void midi_reset_voices(void);
+void midi_frame(void);          /* once a frame: the PSG instruments' sequences */
+int  midi_psg_set(int c, const uint8_t *in, int len);  /* CMD_PSG_SET */
+int  midi_psg_get(int c, uint8_t *out);                /* its compact form: the length */
 extern uint16_t rx_bytes, rx_errors;   /* md_rx.c: for the monitor */
 extern uint8_t rx_pins[6];
 extern int midi_quiet;          /* 1: leave these bytes out of the monitor */
@@ -129,6 +132,8 @@ extern int files_skipped;
 /* md_ed.c: the Mega EverDrive (runs from work RAM with RV = 1) */
 int  ed_detect(void);                   /* 1 if it answers */
 int  ed_dir_open(const char *path);     /* sorted listing -> entry count, or -1 */
+#define ED_DIR_BATCH 12         /* entries per ed_dir_batch (they must fit the 2 KB FIFO) */
+#define ED_NAME_MAX  128        /* longest name asked for (longer: cut, then left out) */
 int  ed_dir_batch(int first, int n);    /* then n x ed_dir_next() */
 int  ed_dir_next(char *name, int max, int *is_dir);
 int  ed_dir_entry(int i, char *name, int max, int *is_dir);   /* 0 or -1; *is_dir -1: hidden */

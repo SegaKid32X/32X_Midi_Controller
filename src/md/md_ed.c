@@ -212,6 +212,7 @@ int RAM ed_dir_open(const char *path)
     if (!ed_ok) return -1;
     COMM16(C_FLAGS) |= FL_BUSY;
     rv_on();
+    fifo_flush();                           /* (nothing left over from before) */
     int r = -1;
     cmd_tx(CMD_F_DIR_LD);
     fifo_wr8(DIR_OPT_SORTED);
@@ -258,15 +259,21 @@ int RAM ed_dir_entry(int i, char *name, int max, int *is_dir)
 
 /* Many entries at once: ed_dir_batch(first, n) asks for n of the loaded
  * listing, then ed_dir_next() reads them one by one, in order (one command
- * for the lot rather than one each). All n must be read. */
+ * for the lot rather than one each). All n must be read.
+ *
+ * The answer must fit the EverDrive's FIFO to the console (2 KB, see
+ * FIFO_RXF_MSK): n records of at most 1 + 9 + 2 + ED_NAME_MAX bytes each
+ * (ED_DIR_BATCH x 140 = 1680). A bigger request came back garbled on a
+ * console (folders of more than ~60 files listed as empty, 2026-11-09). */
 int RAM ed_dir_batch(int first, int n)
 {
     if (!ed_ok) return -1;
     rv_on();
+    fifo_flush();                           /* (nothing left over from before) */
     cmd_tx(CMD_F_DIR_GET);
     fifo_wr16((unsigned)first);
     fifo_wr16((unsigned)n);
-    fifo_wr16(255);
+    fifo_wr16(ED_NAME_MAX);
     rv_off();
     return 0;
 }
@@ -295,6 +302,7 @@ int RAM ed_read_file(const char *path, uint8_t *dst, int max, uint16_t *len)
     if (!ed_ok) return ERR_STATUS;
     COMM16(C_FLAGS) |= FL_BUSY;
     rv_on();
+    fifo_flush();
     int e;
     uint32_t size = 0;
     cmd_tx(CMD_F_FINFO);

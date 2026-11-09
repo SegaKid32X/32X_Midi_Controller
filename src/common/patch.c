@@ -250,3 +250,111 @@ void patch_from_regs(fm_patch *p, int ch, const uint8_t *shadow)
     p->ams = (r[0xB4 + c] >> 4) & 3;
     p->fms = r[0xB4 + c] & 7;
 }
+
+/* ---- PSG instruments (.dmp, standard) ---- */
+
+static int seq_read(psg_seq *q, const uint8_t *d, int len, int at, int offset)
+{
+    if (at >= len) return -1;
+    int n = d[at++];
+    if (n > 127 || at + 4 * n > len) return -1;
+    q->len = (uint8_t)(n > PSG_STEPS ? PSG_STEPS : n);
+    for (int i = 0; i < n; i++, at += 4) {
+        int32_t v = (int32_t)((uint32_t)d[at] | (uint32_t)d[at + 1] << 8 |
+                              (uint32_t)d[at + 2] << 16 | (uint32_t)d[at + 3] << 24) - offset;
+        if (v < -128) v = -128;
+        if (v > 127) v = 127;
+        if (i < PSG_STEPS) q->v[i] = (int8_t)v;
+    }
+    q->loop = 0xFF;
+    if (n) {
+        if (at >= len) return -1;
+        int l = d[at++];
+        q->loop = (uint8_t)(l < q->len ? l : 0xFF);
+    }
+    return at;
+}
+
+int psg_parse(psg_patch *p, const uint8_t *d, int len)
+{
+    int at;
+    if (len < 3) return -1;
+    if (d[0] == 0x0B) {                         /* version 11: system, mode */
+        if (d[1] != 0x02 && d[1] != 0x42 && d[1] != 0x03) return -1;   /* Genesis, Master System */
+        if (d[2] != 0) return -1;               /* (1: FM) */
+        at = 3;
+    } else if (d[0] == 0x09 || d[0] == 0x0A) {  /* older: the mode only */
+        if (d[1] != 0) return -1;
+        at = 2;
+    } else {
+        return -1;
+    }
+    for (unsigned i = 0; i < sizeof *p; i++) ((uint8_t *)p)[i] = 0;
+    if ((at = seq_read(&p->vol, d, len, at, 0)) < 0) return -1;
+    if ((at = seq_read(&p->arp, d, len, at, d[0] == 0x0B ? 12 : 0)) < 0) return -1;
+    if (at >= len) return -1;
+    p->arp_fixed = d[at++] ? 1 : 0;
+    if ((at = seq_read(&p->noise, d, len, at, 0)) < 0) return -1;
+    for (int i = 0; i < p->vol.len; i++) {      /* (volume 0-15) */
+        if (p->vol.v[i] < 0) p->vol.v[i] = 0;
+        if (p->vol.v[i] > 15) p->vol.v[i] = 15;
+    }
+    return 0;
+}
+
+int psg_pack(const psg_patch *p, uint8_t *out)
+{
+    int n = 0;
+    out[n++] = p->arp_fixed;
+    const psg_seq *q[3] = { &p->vol, &p->arp, &p->noise };
+    for (int k = 0; k < 3; k++) {
+        out[n++] = q[k]->len;
+        out[n++] = q[k]->loop;
+        for (int i = 0; i < q[k]->len; i++) out[n++] = (uint8_t)q[k]->v[i];
+    }
+    return n;
+}
+
+int psg_unpack(psg_patch *p, const uint8_t *in, int len)
+{
+    int n = 0;
+    for (unsigned i = 0; i < sizeof *p; i++) ((uint8_t *)p)[i] = 0;
+    if (len < 7) return -1;
+    p->arp_fixed = in[n++];
+    psg_seq *q[3] = { &p->vol, &p->arp, &p->noise };
+    for (int k = 0; k < 3; k++) {
+        if (n + 2 > len) return -1;
+        int l = in[n++];
+        q[k]->len = (uint8_t)(l > PSG_STEPS ? PSG_STEPS : l);
+        q[k]->loop = in[n++];
+        if (n + l > len) return -1;
+        for (int i = 0; i < l; i++, n++) if (i < PSG_STEPS) q[k]->v[i] = (int8_t)in[n];
+    }
+    return 0;
+}
+
+static int seq_put(const psg_seq *q, uint8_t *out, int n, int offset)
+{
+    out[n++] = q->len;
+    for (int i = 0; i < q->len; i++) {
+        uint32_t v = (uint32_t)(q->v[i] + offset);
+        out[n++] = (uint8_t)v; out[n++] = (uint8_t)(v >> 8);
+        out[n++] = (uint8_t)(v >> 16); out[n++] = (uint8_t)(v >> 24);
+    }
+    if (q->len) out[n++] = q->loop == 0xFF ? 0xFF : q->loop;
+    return n;
+}
+
+int psg_write_dmp(const psg_patch *p, uint8_t *out)
+{
+    int n = 0;
+    out[n++] = 0x0B;            /* version 11 */
+    out[n++] = 0x02;            /* Genesis */
+    out[n++] = 0x00;            /* standard */
+    n = seq_put(&p->vol, out, n, 0);
+    n = seq_put(&p->arp, out, n, 12);
+    out[n++] = p->arp_fixed;
+    n = seq_put(&p->noise, out, n, 0);
+    out[n++] = 0;               /* (no wavetable) */
+    return n;
+}

@@ -10,8 +10,10 @@
         .long   ignore                  | 12-25 (25: level 1)
         .endr
         .long   ext_irq                 | 26: level 2, the GenMDM's strobe (TH, port 2)
-        .rept   37
-        .long   ignore                  | 27-63 (VINT and HINT are off)
+        .long   ignore, ignore, ignore  | 27-29 (HINT is off)
+        .long   vint                    | 30: level 6, the vertical interrupt: a frame
+        .rept   33
+        .long   ignore                  | 31-63
         .endr
 
 | 0x100: the header (tools/romfix.py fills in the checksum and the ROM end;
@@ -32,6 +34,10 @@
 
 | 0x200
 ignore: rte
+
+        .global vint
+vint:   addq.w  #1,vint_count           | (src/md/md_main.c counts frames with it)
+        rte
 
         .macro  fatal n
 err\n:  move.w  #0x2700,sr

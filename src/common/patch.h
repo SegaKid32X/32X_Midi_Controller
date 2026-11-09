@@ -53,4 +53,31 @@ void patch_default(fm_patch *p);
 /* The register offset of operator n (0-3, OP1..OP4) */
 extern const uint8_t patch_op_reg[4];
 
+/* ---- PSG instruments: DefleMask .dmp "standard" instruments (Genesis or
+ * Master System): sequences stepped once a frame while a note sounds ---- */
+#define PSG_STEPS   48          /* (longer sequences are cut) */
+typedef struct {
+    uint8_t len;                /* 0: none */
+    uint8_t loop;               /* the step to go back to at the end, 0xFF: stay on the last */
+    int8_t  v[PSG_STEPS];
+} psg_seq;
+
+typedef struct {
+    psg_seq vol;                /* 0-15 (15 = loudest) */
+    psg_seq arp;                /* semitones added to the note (or, fixed: the note) */
+    psg_seq noise;              /* the noise channel: bit 0 = white (else periodic) */
+    uint8_t arp_fixed;
+} psg_patch;
+
+#define PSG_PACKED_MAX  (1 + 3 * (2 + PSG_STEPS))
+/* 0 if the data is a .dmp PSG instrument (and p has it), else -1 */
+int  psg_parse(psg_patch *p, const uint8_t *data, int len);
+/* the compact form the 68000 takes (CMD_PSG_SET): fixed, then each sequence
+ * as len, loop, values; its length */
+int  psg_pack(const psg_patch *p, uint8_t *out);
+int  psg_unpack(psg_patch *p, const uint8_t *in, int len);
+/* a .dmp file of it (version 11, Genesis, standard): its length (<= PSG_FILE_MAX) */
+#define PSG_FILE_MAX    (16 + 3 * (2 + 4 * PSG_STEPS))
+int  psg_write_dmp(const psg_patch *p, uint8_t *out);
+
 #endif
