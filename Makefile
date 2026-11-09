@@ -46,7 +46,7 @@ HEADERS := $(wildcard src/32x/*.h src/common/*.h src/include/*.h)
 
 MARKERS := --title "32X MIDI CONTROLLER" --marker "32X MIDI CONTROLLER"
 
-.PHONY: all test-rom check clean host-test md md-test
+.PHONY: all test-rom check clean host-test md md-test samples-roms
 all: $(ROM) $(MDROM)
 
 $(OBJ) $(OBJ)/sh $(OBJ)/md $(OBJ)/host rom:
@@ -124,6 +124,18 @@ $(MDROM): $(OBJ)/midimd.bin | rom
 	cp $< $@
 	python3 tools/romfix.py $@ --pow2 --gran 131072
 md: $(MDROM)
+# the sample patches (tools/make_sample_patches.py) built in: long lists
+SAMPLEROM   := rom/midi32x-samples.32x
+MDSAMPLEROM := rom/midimd-samples.bin
+$(OBJ)/samples/stamp: tools/make_sample_patches.py | $(OBJ)
+	rm -rf $(OBJ)/samples
+	python3 tools/make_sample_patches.py $(OBJ)/samples
+	touch $@
+samples-roms: $(OBJ)/$(TARGET).raw $(OBJ)/midimd.bin $(OBJ)/samples/stamp | rom
+	python3 tools/mkvfs.py $(OBJ)/$(TARGET).raw $(SAMPLEROM) $(OBJ)/samples
+	python3 tools/romfix.py $(SAMPLEROM) --pow2 --gran 524288
+	python3 tools/mkvfs.py $(OBJ)/midimd.bin $(MDSAMPLEROM) $(OBJ)/samples
+	python3 tools/romfix.py $(MDSAMPLEROM) --pow2 --gran 131072
 md-test: $(OBJ)/midimd.bin $(OBJ)/testpatches/stamp | rom
 	python3 tools/mkvfs.py $(OBJ)/midimd.bin $(MDTESTROM) $(OBJ)/testpatches
 	python3 tools/romfix.py $(MDTESTROM) --pow2 --gran 131072
@@ -146,7 +158,7 @@ host-test: $(OBJ)/host/test_patch $(OBJ)/host/test_midi $(OBJ)/host/test_link
 tests/harness: tests/harness.c
 	$(HOSTCC) -O2 -std=c11 -Wall -o $@ $< -ldl -lm
 
-check: $(ROM) test-rom $(MDROM) md-test host-test tests/harness
+check: $(ROM) test-rom $(MDROM) md-test samples-roms host-test tests/harness
 	@if [ -f tests/emu/picodrive_libretro.so ]; then python3 tests/run_tests.py; \
 	else echo "SKIP emulator tests: put picodrive_libretro.so in tests/emu (see tests/emu/README.md)"; fi
 

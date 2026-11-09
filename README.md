@@ -30,6 +30,11 @@ the guide, the settings and the MIDI monitor, with the same Teensy firmware
 play nothing), and the screen redraws more slowly (about 0.1-0.2 s), since the
 Genesis's 68000 draws it as well as running the sound and the port.
 
+Sample patches: `release/sample_patches.zip` (42 patches in folders, plus 168
+in `Variations`; unzip it at
+the top of the SD card, it makes `MIDI_PATCHES/Samples`), made by
+`tools/make_sample_patches.py` from classic YM2612 recipes.
+
 ## Setting up
 
 1. GenMDM interface in controller port 2, a pad (6 buttons is best) in port 1.

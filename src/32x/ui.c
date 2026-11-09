@@ -284,9 +284,16 @@ static void set_origin(int c, const char *rel)
     chan_edited[c] = 0;
 }
 
+/* POLY mode plays every note on any of the six FM channels: they all have
+ * to have the sound, whatever the target says */
+static int all_six(void)
+{
+    return target == ALL_CH || (settings[SET_MODE] == 1 && target < ALL_CH);
+}
+
 static void apply_to_target(const fm_patch *p, const char *rel)
 {
-    if (target == ALL_CH) {
+    if (all_six()) {
         for (int c = 0; c < 6; c++) {
             voice_apply(c, p);
             set_origin(c, rel);
@@ -312,16 +319,33 @@ static void load_cursor(void)
     voice = p;
 }
 
-static void draw_library(void)
+/* The library is drawn in parts, so moving the cursor, scrolling or loading
+ * a patch redraws only what changed (the Genesis-only build draws slowly). */
+enum { PART_ROWS = 1, PART_LIST = 2, PART_PANEL = 4 };
+static int part_dirty, drawn_cursor = -1;
+
+static void lib_row(int i)                      /* row i of the list, cleared first */
 {
-    gfx_clear(COL_BG);
-    header(APP_TITLE);
-    {                                           /* where we are */
-        char where[PATH_MAX_ + 16] = "MIDI_PATCHES";
-        if (lib_path[0]) { strcat(where, "/"); strcat(where, lib_path); }
-        int n = (int)strlen(where), max = 31;
-        gfx_text(6, 13, n > max ? where + n - max : where, COL_HEAD);
+    int r = i - top;
+    if (r < 0 || r >= LIST_ROWS) return;
+    int y = LIST_Y + r * CHAR_H;
+    gfx_rect(0, y - 1, 189, CHAR_H, COL_BG);
+    if (i >= lib_count) return;
+    if (i == cursor)
+        gfx_rect(2, y - 1, 186, CHAR_H, COL_CURSOR);
+    if (lib_is_dir(i)) {                        /* a folder: a tab and a name in blue */
+        gfx_rect(6, y + 1, 4, 2, COL_HEAD);
+        gfx_rect(6, y + 2, 9, 5, COL_HEAD);
+        int n = gfx_text_n(18, y, lib_name(i), 27, i == cursor ? COL_HI : COL_HEAD);
+        gfx_text(18 + n * CHAR_W, y, "/", COL_HEAD);
+    } else {
+        gfx_text_n(6, y, lib_name(i), 30, i == cursor ? COL_HI : COL_TEXT);
     }
+}
+
+static void lib_list(void)                      /* every row and the scroll bar */
+{
+    gfx_rect(0, LIST_Y - 1, 194, LIST_ROWS * CHAR_H + 1, COL_BG);
     if (!lib_count && lib_path[0]) {
         gfx_text(16, 60, "THIS FOLDER HAS NO PATCH FILES", COL_HI);
         gfx_text(16, 76, "B: BACK UP A FOLDER", COL_TEXT);
@@ -331,25 +355,8 @@ static void draw_library(void)
         gfx_text(16, 88, "MIDI_PATCHES ON THE SD CARD.", COL_TEXT);
         gfx_text(16, 104, "A: LOOK AGAIN    START: THE GUIDE", COL_TEXT);
     }
-    for (int r = 0; r < LIST_ROWS && top + r < lib_count; r++) {
-        int i = top + r, y = LIST_Y + r * CHAR_H;
-        if (i == cursor)
-            gfx_rect(2, y - 1, 186, CHAR_H, COL_CURSOR);
-        if (lib_is_dir(i)) {                    /* a folder: a tab and a name in blue */
-            gfx_rect(6, y + 1, 4, 2, COL_HEAD);
-            gfx_rect(6, y + 2, 9, 5, COL_HEAD);
-            int n = gfx_text_n(18, y, lib_name(i), 27, i == cursor ? COL_HI : COL_HEAD);
-            gfx_text(18 + n * CHAR_W, y, "/", COL_HEAD);
-        } else {
-            gfx_text_n(6, y, lib_name(i), 30, i == cursor ? COL_HI : COL_TEXT);
-        }
-    }
-    if (lib_skipped) {                          /* files we could not list */
-        char t[48], *o = fmt_num(t, lib_skipped);
-        strcpy(o, " FILES LEFT OUT: NAMES TOO LONG/TOO MANY");
-        gfx_rect(0, LIST_Y + LIST_ROWS * CHAR_H, 194, CHAR_H, COL_BG);
-        gfx_text_n(4, LIST_Y + LIST_ROWS * CHAR_H, t, 31, COL_ORANGE);
-    }
+    for (int r = 0; r < LIST_ROWS && top + r < lib_count; r++)
+        lib_row(top + r);
     if (lib_count > LIST_ROWS) {                /* the scroll bar */
         int h = LIST_ROWS * CHAR_H;
         int bar = h * LIST_ROWS / lib_count;
@@ -358,7 +365,10 @@ static void draw_library(void)
         gfx_rect(190, LIST_Y - 1, 3, h, COL_PANEL);
         gfx_rect(190, LIST_Y - 1 + pos, 3, bar, COL_DIM);
     }
-    /* the target and its voice */
+}
+
+static void lib_panel(void)                     /* the target and its voice */
+{
     int px = 200;
     gfx_rect(px - 4, 16, SCREEN_W - px + 4, SCREEN_H - 32, COL_PANEL);
     gfx_text(px, 20, "TARGET", COL_DIM);
@@ -382,7 +392,7 @@ static void draw_library(void)
             gfx_text_n(px + 22, y, synth_names[i], 15, i == drum_pick ? COL_HI : COL_TEXT);
         }
         if (synth_count > 17) gfx_text(px, 44 + 17 * 9, "...", COL_DIM);
-        goto footers;
+        return;
     }
     char t[40], *o = t;
     o = (char *)memcpy(o, "ALG ", 4) + 4; o = fmt_num(o, voice.alg);
@@ -394,14 +404,63 @@ static void draw_library(void)
         gfx_num(px + 12, 104 + i * 20, i + 1, COL_DIM);
         draw_envelope(px + 22, 100 + i * 20, 92, 17, &voice.op[i], COL_ORANGE);
     }
-footers:
+}
+
+static const char *footer_shown;         /* (the library's last hint: not drawn again) */
+
+static void lib_footer(void)
+{
+    const char *h;
     if (lib_count && lib_is_dir(cursor))
-        footer(lib_path[0] ? "A OPEN THE FOLDER  B UP  START MENU" : "A OPEN THE FOLDER  START MENU");
+        h = lib_path[0] ? "A OPEN THE FOLDER  B UP  START MENU" : "A OPEN THE FOLDER  START MENU";
     else if (lib_count)
-        footer(lib_path[0] ? "UP/DN PATCH  C CHAN  A EDIT  B UP  X HEAR"
-                           : "UP/DN PATCH  C CHAN  A EDIT  X HEAR  START MENU");
+        h = lib_path[0] ? "UP/DN PATCH  C CHAN  A EDIT  B UP  X HEAR"
+                        : "UP/DN PATCH  C CHAN  A EDIT  X HEAR  START MENU";
     else
-        footer(lib_path[0] ? "B: BACK UP A FOLDER" : "A: LOOK AGAIN   START: MENU");
+        h = lib_path[0] ? "B: BACK UP A FOLDER" : "A: LOOK AGAIN   START: MENU";
+    if (h == footer_shown && message_timer <= 0) return;
+    footer(h);
+    footer_shown = message_timer > 0 ? 0 : h;
+}
+
+static void draw_library(void)
+{
+    footer_shown = 0;
+    gfx_clear(COL_BG);
+    header(APP_TITLE);
+    {                                           /* where we are */
+        char where[PATH_MAX_ + 16] = "MIDI_PATCHES";
+        if (lib_path[0]) { strcat(where, "/"); strcat(where, lib_path); }
+        int n = (int)strlen(where), max = 31;
+        gfx_text(6, 13, n > max ? where + n - max : where, COL_HEAD);
+    }
+    lib_list();
+    if (lib_skipped) {                          /* files we could not list */
+        char t[48], *o = fmt_num(t, lib_skipped);
+        strcpy(o, " FILES LEFT OUT: NAMES TOO LONG/TOO MANY");
+        gfx_rect(0, LIST_Y + LIST_ROWS * CHAR_H, 194, CHAR_H, COL_BG);
+        gfx_text_n(4, LIST_Y + LIST_ROWS * CHAR_H, t, 31, COL_ORANGE);
+    }
+    lib_panel();
+    lib_footer();
+    drawn_cursor = cursor;
+    part_dirty = 0;
+}
+
+/* only the parts that changed (the library with nothing over it) */
+static void draw_library_parts(void)
+{
+    if (part_dirty & PART_LIST) {
+        lib_list();
+    } else if (part_dirty & PART_ROWS) {
+        if (drawn_cursor != cursor) lib_row(drawn_cursor);
+        lib_row(cursor);
+    }
+    if (part_dirty & PART_PANEL) lib_panel();
+    lib_footer();
+    drawn_cursor = cursor;
+    part_dirty = 0;
+    gfx_present();
 }
 
 static void library_input(uint16_t p)
@@ -413,16 +472,25 @@ static void library_input(uint16_t p)
     if (p & PAD_RIGHT) cursor += LIST_ROWS;
     if (cursor >= lib_count) cursor = lib_count - 1;
     if (cursor < 0) cursor = 0;
-    if (cursor != old) {
-        load_timer = lib_is_dir(cursor) ? -1 : 10;  /* load once the cursor rests */
-        dirty = 1;
-    }
+    int old_top = top;
+#ifdef MD_ONLY
+    /* (the Genesis draws a whole list slowly: past an edge, half a page at a time) */
+    if (cursor < top) top = cursor - LIST_ROWS / 2;
+    if (cursor >= top + LIST_ROWS) top = cursor - LIST_ROWS / 2;
+    if (top > lib_count - LIST_ROWS) top = lib_count - LIST_ROWS;
+    if (top < 0) top = 0;
+#else
     if (cursor < top) top = cursor;
     if (cursor >= top + LIST_ROWS) top = cursor - LIST_ROWS + 1;
+#endif
+    if (cursor != old) {
+        load_timer = lib_is_dir(cursor) ? -1 : 10;  /* load once the cursor rests */
+        part_dirty |= top != old_top ? PART_LIST : PART_ROWS;
+    }
     if (p & PAD_C) {
         target = next_target(target, 0);
         slot_read(shown_ch(), &voice);
-        dirty = 1;
+        part_dirty |= PART_PANEL;
     }
     if (p & PAD_START) {
         overlay = OV_MENU;
@@ -601,7 +669,7 @@ static void draw_editor(void)
 
 static void voice_changed(void)
 {
-    if (target == ALL_CH) {
+    if (all_six()) {
         for (int c = 0; c < 6; c++) { voice_apply(c, &voice); chan_edited[c] = 1; }
     } else {
         slot_apply(shown_ch(), &voice);
@@ -1103,7 +1171,20 @@ static void settings_input(uint16_t p)
         } else {
             settings[set_row] = (uint8_t)md_cmd(CMD_SETTING, (uint16_t)set_row, (uint16_t)v, 0);
         }
-        if (set_row == SET_MODE && v == 1) target = ALL_CH;     /* POLY: patches go to all six */
+        if (set_row == SET_MODE && v == 1 && target <= ALL_CH) {   /* POLY: the sound on all six */
+            int from = shown_ch();
+            fm_patch p;
+            slot_read(from, &p);
+            char rel[sizeof chan_path[0]];
+            strcpy(rel, chan_path[from]);
+            int ed = chan_edited[from];
+            for (int c = 0; c < 6; c++) {
+                voice_apply(c, &p);
+                set_origin(c, rel);
+                chan_edited[c] = ed;
+            }
+            target = ALL_CH;
+        }
     }
     if (p & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_A)) dirty = 1;
     if (p & (PAD_B | PAD_START)) {
@@ -1141,6 +1222,7 @@ static void preview(void)
 
 void ui_draw(void)
 {
+    part_dirty = 0;
     if (overlay == OV_GUIDE || overlay == OV_MONITOR) {
         if (overlay == OV_GUIDE) guide_draw();
         else draw_monitor();
@@ -1214,7 +1296,7 @@ void ui_frame(void)
     if (load_timer > 0 && (load_timer -= frame_el) <= 0) {
         load_timer = -1;
         if (lib_count) load_cursor();
-        dirty = 1;
+        part_dirty |= PART_PANEL;
     }
     /* the GenMDM changed something: show it (at most every few frames) */
     uint16_t act = hw_activity();
@@ -1227,7 +1309,8 @@ void ui_frame(void)
         voice_read(shown_ch(), &now);
         if (memcmp(&now, &voice, sizeof now) || lfo != shadow_byte(0x22)) {
             voice = now;
-            dirty = 1;
+            if (screen == SCR_LIBRARY) part_dirty |= PART_PANEL;
+            else dirty = 1;
         }
     }
 no_refresh:
@@ -1241,7 +1324,7 @@ no_refresh:
     if (++light_timer >= 3 && lights_now() != lights_shown && overlay != OV_GUIDE) {
         light_timer = 0;
         if (overlay == OV_MONITOR) dirty = 1;
-        else if (!dirty) { draw_lights(); gfx_present(); }
+        else if (!dirty) { draw_lights(); if (!part_dirty) gfx_present(); }
     }
     if (message_timer > 0 && (message_timer -= frame_el) <= 0)
         dirty = 1;
@@ -1251,5 +1334,9 @@ no_refresh:
         dirty = 1;
     }
     if (dirty)
+        ui_draw();
+    else if (part_dirty && screen == SCR_LIBRARY && overlay == OV_NONE)
+        draw_library_parts();
+    else if (part_dirty)
         ui_draw();
 }

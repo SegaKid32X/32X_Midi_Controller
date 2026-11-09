@@ -124,7 +124,8 @@ static void custom_nibble(uint8_t v)
 
 static void nibble(uint8_t v)
 {
-    v |= 0x40;
+    v = (uint8_t)((v & 0x3F) | 0x40);   /* (bit 7 is the port's latch: on a Genesis without
+                                         * the 32X it can read 1) */
     if (v == last)
         return;
     last = v;

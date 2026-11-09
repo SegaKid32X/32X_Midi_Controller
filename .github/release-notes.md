@@ -3,6 +3,7 @@ The newest build, updated automatically whenever the files change.
 - **midi32x.32x** - the ROM for the Sega 32X (with a Mega EverDrive PRO).
 - **midimd.bin** - the same program for a Genesis / Mega Drive alone (no 32X: MIDI channels 11-16 play nothing).
 - **midi32x.hex** - the Teensy firmware for the GenMDM interface, for both ROMs. Flash it with Teensy Loader. GenMDM's original firmware also works.
+- **sample_patches.zip** - 42 sample .tfi patches in folders (bass, keys, organ, brass, strings, leads, bells, plucks, drums, effects), plus a Variations folder with 168 (each one and three takes on it). Unzip it at the top of the SD card: it makes MIDI_PATCHES/Samples.
 
 Put the ROM anywhere on the SD card, and your .tfi / .dmp / .y12 patches in a folder called MIDI_PATCHES at the top of the card.
 

@@ -27,6 +27,14 @@
  *   audiomark          start a new audio measurement window
  *   loud <n>           fail unless audio RMS since audiomark >= n (16-bit units)
  *   quiet <n>          fail unless audio RMS since audiomark <  n
+ *   hello              send our Teensy firmware's hello on port 2 (the console
+ *                      then expects MIDI bytes, see midi)
+ *   midi <b> ...       MIDI bytes (hex) as our firmware sends them: put
+ *                      straight into the console's receive ring (the
+ *                      handshake needs TH, which a pad cannot drive); needs
+ *                      HARNESS_RX=<rx_ring address>,<rx_head address>
+ *   dumpram <name>     write the 68000's work RAM (64 KB, in 68000 byte order)
+ *                      to <outdir>/<name>.ram
  *   gm <reg> <val>     send one GenMDM register write into port 2 as the
  *                      stock firmware does (4 nibbles, 2 frames each), with
  *                      a pad's buttons: reg 0x000-0x0BF part I, 0x100-0x1BF
@@ -385,6 +393,48 @@ int main(int argc, char **argv)
         } else if (!strcmp(cmd, "mark") && k >= 2) {
             printf("mark %s %ld\n", arg, audio_n / 2);      /* stereo frames so far */
             fflush(stdout);
+        } else if (!strcmp(cmd, "dumpram") && k >= 2) {
+            uint8_t *ram = retro_get_memory_data(MEMORY_SYSTEM_RAM);
+            char path[512];
+            snprintf(path, sizeof path, "%s/%s.ram", outdir, arg);
+            FILE *rf2 = fopen(path, "wb");
+            if (ram && rf2) for (unsigned a = 0; a < 0x10000; a++) fputc(ram[a ^ 1], rf2);
+            if (rf2) fclose(rf2);
+        } else if (!strcmp(cmd, "hello") || !strcmp(cmd, "midi")) {
+            unsigned nib[64], cnt = 0;
+            if (!strcmp(cmd, "hello")) {
+                static const unsigned h[4] = { 0x29, 0x3F, 0x2D, 0x3F };
+                static const unsigned bit_id[6] = { ID_UP, ID_DOWN, ID_LEFT, ID_RIGHT, ID_B, ID_A };
+                for (unsigned j = 0; j < 4; j++) {
+                    pad[1] = 0;
+                    for (int b = 0; b < 6; b++)
+                        if (!(h[j] >> b & 1)) pad[1] |= 1u << bit_id[b];
+                    for (int f = 0; f < 2; f++) retro_run();
+                }
+                pad[1] = 0;
+                retro_run();
+                continue;
+            }
+            const char *rx = getenv("HARNESS_RX");
+            uint8_t *ram = retro_get_memory_data(MEMORY_SYSTEM_RAM);
+            if (!rx || !ram) { fprintf(stderr, "midi: HARNESS_RX not set\n"); return 3; }
+            unsigned ring = (unsigned)strtoul(rx, NULL, 16) & 0xFFFF;
+            unsigned head = (unsigned)strtoul(strchr(rx, ',') + 1, NULL, 16) & 0xFFFF;
+            /* (PicoDrive keeps 68000 RAM as 16-bit words: byte a is at a ^ 1) */
+            char *q = line + strlen(cmd);
+            for (;;) {
+                char *e;
+                unsigned long b = strtoul(q, &e, 16);
+                if (e == q || cnt >= 62) break;
+                q = e;
+                nib[cnt++] = 0x10 | (b >> 4 & 15);
+                nib[cnt++] = b & 15;
+            }
+            for (unsigned j = 0; j < cnt; j++) {
+                uint8_t h = ram[head ^ 1];
+                ram[(ring + h) ^ 1] = (uint8_t)nib[j];
+                ram[head ^ 1] = (uint8_t)(h + 1);
+            }
         } else if (!strcmp(cmd, "gm") && k >= 2) {
             unsigned reg = (unsigned)strtoul(arg, NULL, 16), val = v2;
             unsigned nib[6], cnt = 0;

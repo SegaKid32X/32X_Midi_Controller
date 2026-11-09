@@ -86,6 +86,23 @@ static int add(const char *name, int len, int dir, int vfs_i)
     return 1;
 }
 
+/* the list's folders first (in their order), then its files: a stable
+ * partition of the index arrays, through file_buf (free while scanning;
+ * MAX_FILES x 2 bytes fit) */
+static void folders_first(void)
+{
+    uint16_t *na = (uint16_t *)(void *)file_buf;
+    int k = 0;
+    for (int i = 0; i < count; i++) if (is_dir_of[i]) na[k++] = name_at[i];
+    int dirs = k;
+    for (int i = 0; i < count; i++) if (!is_dir_of[i]) na[k++] = name_at[i];
+    for (int i = 0; i < count; i++) {
+        name_at[i] = na[i];
+        is_dir_of[i] = (uint8_t)(i < dirs);
+        vfs_index[i] = 0;
+    }
+}
+
 static int scan_vfs(void)
 {
     int n = vfs_scan(), sl = slen(sub);
@@ -153,22 +170,28 @@ int files_scan(void)
     int total = ed_dir_open(path);
     if (total < 0)                      /* MIDI_PATCHES itself missing: no patches yet */
         return sub[0] ? ERR_SD : 0;     /* (saving makes it); a folder in it: an error */
-    for (int pass = 0; pass < 2; pass++)    /* folders first, then files */
-        for (int i = 0; i < total; i++) {
+    /* one pass, the entries streamed in batches; then folders first */
+    for (int i = 0; i < total; ) {
+        int n = total - i > 64 ? 64 : total - i, k = 0;
+        if (ed_dir_batch(i, n)) break;
+        for (; k < n; k++) {
             char name[256];
             int is_dir;
             rx_poll();
-            if (ed_dir_entry(i, name, sizeof name, &is_dir)) {
-                files_skipped += total - i;     /* (keep what we have) */
-                break;
-            }
+            if (ed_dir_next(name, sizeof name, &is_dir)) break;
             if (is_dir < 0 || junk_name(name)) continue;    /* hidden, macOS's leftovers */
             int len = slen(name);
-            int wanted = (is_dir && pass == 0) || (!is_dir && pass == 1 && is_patch(name));
-            if (!wanted) continue;
+            if (!is_dir && !is_patch(name)) continue;
             if (len > 127) { files_skipped++; continue; }
             add(name, len, is_dir, 0);
         }
+        if (k < n) {                    /* the EverDrive stopped answering */
+            files_skipped += total - i - k;     /* (keep what we have) */
+            break;
+        }
+        i += n;
+    }
+    folders_first();
     return count;
 }
 

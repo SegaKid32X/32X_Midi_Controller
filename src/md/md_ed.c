@@ -256,6 +256,39 @@ int RAM ed_dir_entry(int i, char *name, int max, int *is_dir)
     return r;
 }
 
+/* Many entries at once: ed_dir_batch(first, n) asks for n of the loaded
+ * listing, then ed_dir_next() reads them one by one, in order (one command
+ * for the lot rather than one each). All n must be read. */
+int RAM ed_dir_batch(int first, int n)
+{
+    if (!ed_ok) return -1;
+    rv_on();
+    cmd_tx(CMD_F_DIR_GET);
+    fifo_wr16((unsigned)first);
+    fifo_wr16((unsigned)n);
+    fifo_wr16(255);
+    rv_off();
+    return 0;
+}
+
+int RAM ed_dir_next(char *name, int max, int *is_dir)
+{
+    if (!ed_ok) return -1;
+    COMM16(C_FLAGS) |= FL_BUSY;
+    rv_on();
+    int r = -1;
+    uint8_t resp, info[9];
+    if (!fifo_rd(&resp, 1) && !resp && !fifo_rd(info, 9) && !rx_name(name, max)) {
+        *is_dir = (info[8] & AT_DIR) != 0;
+        if (info[8] & 0x06)                 /* FAT hidden or system: skip it */
+            *is_dir = -1;
+        r = 0;
+    }
+    rv_off();
+    COMM16(C_FLAGS) &= (uint16_t)~FL_BUSY;
+    return r;
+}
+
 /* A whole (small) file into dst: 0 or an error; *len = its size */
 int RAM ed_read_file(const char *path, uint8_t *dst, int max, uint16_t *len)
 {

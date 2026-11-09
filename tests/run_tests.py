@@ -27,7 +27,8 @@ HARNESS = os.path.join(HERE, "harness")
 SCRIPTS = os.path.join(HERE, "scripts")
 OUT = os.path.join(HERE, "out")
 ROMS = {"test": "rom/midi32x-test.32x", "plain": "rom/midi32x.32x",
-        "md": "rom/midimd-test.bin", "mdplain": "rom/midimd.bin"}
+        "md": "rom/midimd-test.bin", "mdplain": "rom/midimd.bin",
+        "samples": "rom/midi32x-samples.32x", "mdsamples": "rom/midimd-samples.bin"}
 
 MIN_LIT = 0.08          # at least 8% of pixels not black
 MIN_COLOURS = 6
@@ -53,6 +54,24 @@ def check_shot(path):
     return problems, zlib.crc32(px)
 
 
+ELFS = {"rom/midi32x-test.32x": "obj/md.elf", "rom/midi32x.32x": "obj/md.elf",
+        "rom/midimd-test.bin": "obj/midimd.elf", "rom/midimd.bin": "obj/midimd.elf",
+        "rom/midi32x-samples.32x": "obj/md.elf", "rom/midimd-samples.bin": "obj/midimd.elf"}
+
+
+def rx_symbols(rom):
+    """rx_ring,rx_head of the ROM's 68000 program (the harness's midi command)"""
+    nm = "/opt/toolchains/sega/m68k-elf/bin/m68k-elf-nm"
+    try:
+        out = subprocess.run([nm, os.path.join(ROOT, ELFS[rom])], capture_output=True, text=True).stdout
+    except OSError:
+        return None
+    sym = {l.split()[2]: l.split()[0] for l in out.splitlines() if len(l.split()) == 3}
+    if "rx_ring" in sym and "rx_head" in sym:
+        return sym["rx_ring"] + "," + sym["rx_head"]
+    return None
+
+
 def run(script):
     name = os.path.splitext(os.path.basename(script))[0]
     rom = ROMS["test"]
@@ -62,6 +81,9 @@ def run(script):
             rom = ROMS[line.split(":", 1)[1].strip()]
         if line.startswith("# pad6"):           # a 6-button pad (X Y Z MODE)
             env["HARNESS_PAD6"] = "1"
+    rx = rx_symbols(rom)
+    if rx:
+        env["HARNESS_RX"] = rx
     out = os.path.join(OUT, name)
     os.makedirs(out, exist_ok=True)
     for f in os.listdir(out):
@@ -83,6 +105,14 @@ def run(script):
             failures.append(f"{s}: {', '.join(problems)}")
     if len(shots) > 1 and len(crcs) == 1:
         failures.append("every screenshot is the same")
+    for line in open(script):                   # "# check: poly": tests/check_poly.py
+        if line.startswith("# check: poly"):
+            c = subprocess.run([sys.executable, os.path.join(HERE, "check_poly.py"), out,
+                                os.path.join(ROOT, ELFS[rom]),
+                                os.path.join(ROOT, "obj/samples/Bells/Glockenspiel.tfi")],
+                               capture_output=True, text=True)
+            if c.returncode:
+                failures.append(c.stdout.strip())
     print(f"{'FAIL' if failures else 'ok  '} {name} ({len(shots)} shots)")
     for f in failures:
         print("     " + f)

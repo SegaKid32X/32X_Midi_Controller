@@ -1,0 +1,22 @@
+# rom: mdsamples
+# pad6
+# A long list (the 168 sample patches in Variations/): scroll it held
+# down, the patch loads at rest, B goes back up with the cursor on it.
+run 300
+press right 4
+run 30
+press a 4
+run 120
+telem
+hold down
+run 240
+release down
+telem
+run 120
+shot scrolled
+press b 4
+run 5
+telem
+run 120
+shot back
+telem
