@@ -1,0 +1,1100 @@
+<title>FM Patch Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the guide reads down the left; the synth stays beside it (stacked on
+   phones); a keyboard sits along the bottom edge so every "Try it" can be played. */
+:root {
+  --bg: #e9edf2;          /* cool paper */
+  --panel: #ffffff;
+  --panel2: #f4f6f9;
+  --ink: #18212b;
+  --muted: #5a6877;
+  --line: #cdd5de;
+  --carrier: #d9532a;     /* as on the console: carriers orange */
+  --mod: #23905f;         /* modulators green */
+  --accent: #2c56c9;
+  --hi: #b98510;          /* loops, the playhead */
+  --key: #ffffff;
+  --keyblack: #1d2630;
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --kb-h: 118px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141a; --panel: #171e27; --panel2: #1d2631; --ink: #e3e9f0; --muted: #94a2b2;
+    --line: #2b3644; --carrier: #ff7b4f; --mod: #4cc08a; --accent: #86a6ff; --hi: #e6b84a;
+    --key: #d9dfe6; --keyblack: #0a0e13; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141a; --panel: #171e27; --panel2: #1d2631; --ink: #e3e9f0; --muted: #94a2b2;
+  --line: #2b3644; --carrier: #ff7b4f; --mod: #4cc08a; --accent: #86a6ff; --hi: #e6b84a;
+  --key: #d9dfe6; --keyblack: #0a0e13; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--body); }
+.wrap {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px;
+  max-width: 1320px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px calc(var(--kb-h) + 28px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 1100px) {
+  .wrap { grid-template-columns: minmax(0, 1fr) 560px; align-items: start; }
+  .synth { position: sticky; top: calc(12px + env(safe-area-inset-top, 0px)); max-height: calc(100vh - var(--kb-h) - 40px); overflow: auto; order: 2; }
+  .guide { order: 1; }
+}
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(30px, 4vw, 42px); font-weight: 700; letter-spacing: 0.01em; }
+h2 { font-size: 24px; font-weight: 600; }
+h3 { font-size: 17px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--mono); font-size: 0.92em; }
+.guide { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.hero { display: flex; flex-direction: column; gap: 10px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+section.topic { display: flex; flex-direction: column; gap: 12px; padding-top: 18px; border-top: 1px solid var(--line); min-width: 0; }
+.knob-tag { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.tries { display: flex; flex-wrap: wrap; gap: 8px; }
+button, select, input[type=text] { font: 500 13px var(--body); color: var(--ink); }
+.try, .btn {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 6px;
+  padding: 6px 11px; cursor: pointer; text-align: left;
+}
+.try:hover, .btn:hover { border-color: var(--accent); }
+.try:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visible, .key:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.try::before { content: "\25B6\00a0"; color: var(--accent); font-size: 10px; }
+.try.on { border-color: var(--accent); background: var(--panel2); }
+.btn.primary { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+ul.plain { margin: 0; padding-left: 18px; max-width: 68ch; display: flex; flex-direction: column; gap: 4px; }
+.tablewrap { overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; font-size: 13.5px; min-width: 100%; }
+th, td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+td.mono, td code { white-space: nowrap; }
+.note { color: var(--muted); font-size: 13.5px; }
+.callout { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; max-width: 68ch; }
+.alg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.alg-card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.alg-card.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.alg-card span { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.alg-card svg { width: 100%; height: auto; }
+
+/* ---- the synth panel ---- */
+.synth { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.synth > * { flex-shrink: 0; }
+.synth-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.synth-head h2 { font-size: 20px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+input[type=text] { border: 1px solid var(--line); background: var(--panel2); border-radius: 6px; padding: 6px 8px; min-width: 0; width: 12em; }
+select { border: 1px solid var(--line); background: var(--panel2); border-radius: 6px; padding: 5px 6px; }
+.globals { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; }
+.ctl { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) 3.2em; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; }
+.ctl label { color: var(--muted); }
+.ctl output { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+input[type=range] { width: 100%; accent-color: var(--accent); min-width: 0; }
+.diagram { background: var(--panel2); border-radius: 8px; padding: 6px; }
+.diagram svg { width: 100%; height: auto; display: block; }
+.ops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 520px) { .ops { grid-template-columns: minmax(0, 1fr); } }
+.op { border: 1px solid var(--line); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.op.carrier { border-top: 3px solid var(--carrier); }
+.op.modulator { border-top: 3px solid var(--mod); }
+.op-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.op-head b { font-family: var(--display); font-size: 15px; }
+.op-head .role { font-family: var(--mono); font-size: 11px; }
+.op.carrier .role { color: var(--carrier); }
+.op.modulator .role { color: var(--mod); }
+.op canvas { width: 100%; height: 46px; background: var(--panel2); border-radius: 5px; display: block; }
+.op .flags { display: flex; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; color: var(--muted); align-items: center; }
+.scope { width: 100%; height: 70px; background: var(--panel2); border-radius: 8px; display: block; }
+.status { font-family: var(--mono); font-size: 12px; color: var(--muted); min-height: 1.4em; }
+
+/* ---- the keyboard along the bottom ---- */
+.kb {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: var(--panel); border-top: 1px solid var(--line);
+  padding: 8px max(16px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  display: flex; gap: 12px; align-items: stretch;
+}
+.kb-side { display: flex; flex-direction: column; gap: 6px; justify-content: center; font-family: var(--mono); font-size: 12px; min-width: 0; }
+.keys { position: relative; flex: 1; height: 92px; min-width: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+.key { position: absolute; top: 0; border: 1px solid var(--line); border-radius: 0 0 5px 5px; cursor: pointer; }
+.key.white { background: var(--key); height: 100%; z-index: 1; }
+.key.black { background: var(--keyblack); height: 60%; z-index: 2; border-color: var(--keyblack); }
+.key.down.white { background: var(--accent); }
+.key.down.black { background: var(--accent); }
+.key small { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-family: var(--mono); font-size: 10px; color: #6b7684; pointer-events: none; }
+@media (max-width: 640px) { .kb-side .hint { display: none; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <aside class="synth" id="synth" aria-label="The synth">
+    <div class="synth-head">
+      <h2>The synth</h2>
+      <div class="row">
+        <button class="btn primary" id="sound">Start sound</button>
+        <button class="btn" id="init">Init (one sine)</button>
+      </div>
+    </div>
+    <div class="row">
+      <label class="note" for="pname">Name</label>
+      <input type="text" id="pname" value="E.Piano" maxlength="15" spellcheck="false">
+      <button class="btn" id="save">Save .tfi .dmp .y12</button>
+      <label class="btn" for="open">Open a patch file</label>
+      <input type="file" id="open" accept=".tfi,.dmp,.y12" hidden>
+    </div>
+    <div class="status" id="status" role="status">Press Start sound, then play the keys at the bottom (or your computer keyboard: Z S X D C V... and Q 2 W 3 E...).</div>
+    <div class="globals" id="globals"></div>
+    <div class="diagram" id="diagram" aria-label="The algorithm"></div>
+    <div class="ops" id="ops"></div>
+    <canvas class="scope" id="scope" aria-label="The waveform"></canvas>
+  </aside>
+
+  <main class="guide">
+    <header class="hero">
+      <div class="eyebrow">YM2612 · four operators · 32X / Genesis MIDI Controller</div>
+      <h1>FM Patch Lab</h1>
+      <p>Every knob on the Mega Drive's FM chip, explained with a working synth beside it. Each section has <b>Try it</b> buttons: they set the knob for you and play a few notes, so you hear what it does. Change anything yourself with the sliders, play the keyboard along the bottom, and save the result as a <code>.tfi</code> (with a <code>.dmp</code> and a <code>.y12</code>) for the cartridge's <code>MIDI_PATCHES</code> folder.</p>
+      <p class="note">The synth here follows the chip closely (its envelope rates, feedback and modulation depth), so a patch made here sounds much the same on the console. It is not cycle-exact: listen on the console before you call a patch finished.</p>
+    </header>
+
+    <section class="topic" id="how">
+      <h2>How FM makes a sound</h2>
+      <p>The chip has six FM channels. Each plays one voice built from four <b>operators</b>, OP1 to OP4. An operator is a sine wave with its own volume envelope. A <b>carrier</b> (orange) is heard: it goes to the speaker. A <b>modulator</b> (green) is not heard; it wobbles the pitch of the operator it feeds, so fast that the wave bends into a richer shape. The louder a modulator, the brighter the sound.</p>
+      <p>That is the whole method: pick which operators feed which (the algorithm), set each one's pitch ratio (MUL), loudness (TL) and envelope, and listen.</p>
+      <div class="tries">
+        <button class="try" data-try="sine">A carrier alone: a pure sine</button>
+        <button class="try" data-try="mod40">Add a modulator, quietly</button>
+        <button class="try" data-try="mod20">The modulator louder: brighter</button>
+        <button class="try" data-try="mod8">Louder still: buzzy</button>
+      </div>
+    </section>
+
+    <section class="topic" id="alg">
+      <h2>ALG: the algorithm</h2>
+      <div class="knob-tag">0-7 · which operators feed which</div>
+      <p>The algorithm decides the wiring. Operators feeding into another are modulators; the ones at the bottom, going out, are carriers. More modulators in a chain give more complex, harsher tones; more carriers give fuller, organ-like sounds made of separate parts. Click one to load it into the synth.</p>
+      <div class="alg-grid" id="alggrid"></div>
+      <div class="tablewrap"><table>
+        <tr><th>ALG</th><th>Wiring</th><th>Good for</th></tr>
+        <tr><td class="mono">0</td><td>1 → 2 → 3 → 4</td><td>The harshest: distorted guitar, growling bass, metallic leads</td></tr>
+        <tr><td class="mono">1</td><td>(1 + 2) → 3 → 4</td><td>Guitars and basses with two sources of grit</td></tr>
+        <tr><td class="mono">2</td><td>(1 + (2 → 3)) → 4</td><td>Basses, plucked and struck sounds, clavinet</td></tr>
+        <tr><td class="mono">3</td><td>((1 → 2) + 3) → 4</td><td>Brass, bass, guitar</td></tr>
+        <tr><td class="mono">4</td><td>(1 → 2) + (3 → 4)</td><td>Two independent pairs: electric piano, brass, strings, layered sounds</td></tr>
+        <tr><td class="mono">5</td><td>1 → (2, 3, 4)</td><td>One modulator, three carriers: thick leads, organs, choirs</td></tr>
+        <tr><td class="mono">6</td><td>(1 → 2) + 3 + 4</td><td>A bright pair plus two pure sines: organs, bells with a body</td></tr>
+        <tr><td class="mono">7</td><td>1 + 2 + 3 + 4</td><td>Four carriers, no FM (except OP1's feedback): drawbar organ, additive sounds</td></tr>
+      </table></div>
+      <div class="tries">
+        <button class="try" data-try="alg0">ALG 0: four in a row</button>
+        <button class="try" data-try="alg4">ALG 4: two pairs</button>
+        <button class="try" data-try="alg7">ALG 7: four sines (organ)</button>
+      </div>
+    </section>
+
+    <section class="topic" id="tl">
+      <h2>TL: total level</h2>
+      <div class="knob-tag">0-127 · 0 = loudest · 0.75 dB a step</div>
+      <p>On a <b>carrier</b>, TL is volume. On a <b>modulator</b>, TL is brightness: how much it bends the carrier. Lower numbers are louder. Every 8 steps is 6 dB, roughly half as loud.</p>
+      <ul class="plain">
+        <li>Carriers usually sit at 0-10. If a patch is too quiet, lower its carriers' TL (the cartridge's LOUDNESS setting does this for you when a patch loads).</li>
+        <li>Modulators usually sit at 20-45. Below 20 the sound gets buzzy and noisy; above 60 a modulator does almost nothing.</li>
+        <li>Turn a modulator's TL down (towards 0) to brighten, up to darken. This is the first knob to reach for.</li>
+      </ul>
+      <div class="tries">
+        <button class="try" data-try="tl-dark">Modulator at TL 50: soft</button>
+        <button class="try" data-try="tl-mid">TL 30: present</button>
+        <button class="try" data-try="tl-bright">TL 12: bright</button>
+        <button class="try" data-try="tl-quiet">Carrier at TL 24: quieter</button>
+      </div>
+    </section>
+
+    <section class="topic" id="mul">
+      <h2>MUL: the multiplier</h2>
+      <div class="knob-tag">0-15 · the operator's pitch as a multiple of the note · 0 = half</div>
+      <p>MUL sets an operator's frequency against the note played. On a carrier it moves the pitch: MUL 2 is an octave up, 3 an octave and a fifth. On a modulator it decides which overtones appear, so it shapes the character.</p>
+      <div class="tablewrap"><table>
+        <tr><th>Modulator : carrier</th><th>Sound</th></tr>
+        <tr><td class="mono">1 : 1</td><td>All harmonics, like a sawtooth: brass, strings, leads</td></tr>
+        <tr><td class="mono">2 : 1</td><td>Odd harmonics, like a square: hollow, clarinet-like, organ</td></tr>
+        <tr><td class="mono">3 : 1, 4 : 1</td><td>Nasal, reedy, more upper partials</td></tr>
+        <tr><td class="mono">1 : 2, 1 : 3</td><td>The carrier above the modulator: thin, vocal</td></tr>
+        <tr><td class="mono">7, 9, 11, 13, 14 : 1</td><td>High ratios: bells, chimes, metal, electric piano tines</td></tr>
+        <tr><td class="mono">0 (= ½)</td><td>An octave down: sub bass, or a modulator that adds body</td></tr>
+      </table></div>
+      <div class="tries">
+        <button class="try" data-try="mul1">Modulator MUL 1: saw-like</button>
+        <button class="try" data-try="mul2">MUL 2: square-like</button>
+        <button class="try" data-try="mul3">MUL 3: nasal</button>
+        <button class="try" data-try="mul7">MUL 7: bell</button>
+        <button class="try" data-try="mulc2">Carrier MUL 2: octave up</button>
+      </div>
+    </section>
+
+    <section class="topic" id="fb">
+      <h2>FB: feedback</h2>
+      <div class="knob-tag">0-7 · OP1 only · OP1 modulates itself</div>
+      <p>Feedback sends OP1's output back into its own pitch. A little (1-3) turns OP1's sine into a saw-like wave, adding harmonics without another operator. 4-5 gets rough; 6-7 is gritty and noisy, which is exactly what distorted guitars, growling basses, cymbals and snares want. Feedback only does anything through OP1, so it is heard if OP1 is a carrier (ALG 7) or if OP1 modulates something.</p>
+      <div class="tries">
+        <button class="try" data-try="fb0">FB 0</button>
+        <button class="try" data-try="fb3">FB 3: saw-like</button>
+        <button class="try" data-try="fb5">FB 5: rough</button>
+        <button class="try" data-try="fb7">FB 7: noise and grit</button>
+      </div>
+    </section>
+
+    <section class="topic" id="dt">
+      <h2>DT: detune</h2>
+      <div class="knob-tag">-3 to +3 · a small fixed pitch offset</div>
+      <p>DT shifts an operator's pitch by a tiny amount, more on high notes than low ones. Two carriers at the same MUL with opposite DT (say +2 and -2) beat against each other: a chorus or slight-shimmer effect, the classic way to thicken pads, strings, electric pianos and "supersaw" leads. On a modulator, DT adds a slow movement to the tone.</p>
+      <div class="tries">
+        <button class="try" data-try="dt0">Two carriers, DT 0 and 0: plain</button>
+        <button class="try" data-try="dt3">DT +3 and -3: chorus</button>
+      </div>
+    </section>
+
+    <section class="topic" id="env">
+      <h2>The envelope: AR, D1R, SL, D2R, RR</h2>
+      <div class="knob-tag">each operator has its own · drawn in its box, the dashed line is key release</div>
+      <p>An envelope shapes an operator's level over time. Carriers' envelopes are the volume you hear; modulators' envelopes are how the brightness moves (a modulator that decays faster than its carrier is the "filter closing" of a pluck or a piano).</p>
+      <div class="tablewrap"><table>
+        <tr><th>Knob</th><th>Range</th><th>What it does</th></tr>
+        <tr><td class="mono">AR</td><td class="mono">0-31</td><td>Attack rate: how fast it rises when a key goes down. 31 is instant, 20-26 a soft start, 10-16 a slow swell (pads, strings). <b>0 never starts: silence.</b></td></tr>
+        <tr><td class="mono">D1R</td><td class="mono">0-31</td><td>First decay rate: how fast it falls from the peak to the sustain level. 0 = no fall.</td></tr>
+        <tr><td class="mono">SL</td><td class="mono">0-15</td><td>Sustain level: where the first decay stops, 3 dB a step. 0 = stay at the peak; 15 = fall all the way to silence.</td></tr>
+        <tr><td class="mono">D2R</td><td class="mono">0-31</td><td>Second decay rate, while the key is still held. 0 = hold forever (organ); 1-5 = a slow fade like a piano string; higher = the note dies while held.</td></tr>
+        <tr><td class="mono">RR</td><td class="mono">0-15</td><td>Release rate after the key comes up. 15 = cut off; 7-9 = a short tail; 2-5 = a long ring.</td></tr>
+      </table></div>
+      <p class="note">Recipes: organ = AR 31, D1R 0, SL 0, D2R 0, RR 8. Pluck = AR 31, D1R 10-14, SL 15. Piano = AR 31, D1R 6, SL 4, D2R 3, RR 7. Pad = AR 12, D1R 2, SL 2, D2R 0, RR 4.</p>
+      <div class="tries">
+        <button class="try" data-try="env-organ">Organ: on and off</button>
+        <button class="try" data-try="env-pluck">Pluck: fast decay</button>
+        <button class="try" data-try="env-piano">Piano: decays while held</button>
+        <button class="try" data-try="env-pad">Pad: slow swell, long release</button>
+        <button class="try" data-try="env-filter">Modulator decays first: "filter" sweep</button>
+      </div>
+    </section>
+
+    <section class="topic" id="rs">
+      <h2>RS: rate scaling</h2>
+      <div class="knob-tag">0-3 · higher notes get faster envelopes</div>
+      <p>Real instruments decay faster on high notes. RS makes all four rates of an operator speed up as the pitch rises: 0 = the same everywhere, 3 = much faster at the top. Use 1-2 on pianos, guitars, mallets and plucks so the top end does not ring on forever.</p>
+      <div class="tries">
+        <button class="try" data-try="rs0">RS 0: low and high notes, same decay</button>
+        <button class="try" data-try="rs3">RS 3: high notes die sooner</button>
+      </div>
+    </section>
+
+    <section class="topic" id="lfo">
+      <h2>LFO, AMS, FMS and AM: vibrato and tremolo</h2>
+      <div class="knob-tag">LFO is shared by all six channels · AMS 0-3 · FMS 0-7 · AM per operator</div>
+      <p>The chip has one low-frequency oscillator (LFO: off, or 8 speeds from 3.98 to 72.2 Hz). Each channel decides how much it listens:</p>
+      <ul class="plain">
+        <li><b>FMS</b> (0-7) is vibrato depth, the pitch wobbling: from ±3.4 cents up to ±80 cents. 2-3 sounds natural on leads and strings.</li>
+        <li><b>AMS</b> (0-3) is tremolo depth (0, 1.4, 5.9, 11.8 dB), but only on operators whose <b>AM</b> switch is on. AM on a carrier wobbles the volume; on a modulator it wobbles the brightness (a wah-like movement).</li>
+      </ul>
+      <p class="note">Two things to know. The LFO speed is global: change it and every channel's vibrato changes. And a <code>.tfi</code> file does not store AMS, FMS, AM or pan; use <code>.dmp</code> (or <code>.y12</code> for AM) when a patch depends on them. The Save button here writes all three.</p>
+      <div class="tries">
+        <button class="try" data-try="vib">Vibrato: LFO 5.56 Hz, FMS 3</button>
+        <button class="try" data-try="trem">Tremolo: AMS 3, AM on the carriers</button>
+        <button class="try" data-try="wah">Wobble: AM on the modulator</button>
+      </div>
+    </section>
+
+    <section class="topic" id="ssg">
+      <h2>SSG-EG: looping envelopes</h2>
+      <div class="knob-tag">off, or shapes 1-8 · per operator · for effects</div>
+      <p>SSG-EG makes an envelope repeat or flip instead of ending. It is the trick behind the chip's buzzing, sweeping and "sawtooth wave" effects. It uses the operator's D1R, SL and D2R and ignores RR while held. The shapes, as numbered in the cartridge's editor:</p>
+      <div class="tablewrap"><table>
+        <tr><th>Editor</th><th>Register</th><th>Shape</th><th></th></tr>
+        <tr><td class="mono">1</td><td class="mono">8</td><td class="mono">\\\\</td><td>Decay, again and again</td></tr>
+        <tr><td class="mono">2</td><td class="mono">9</td><td class="mono">\___</td><td>Decay once, then silence</td></tr>
+        <tr><td class="mono">3</td><td class="mono">10</td><td class="mono">\/\/</td><td>Down, up, down...</td></tr>
+        <tr><td class="mono">4</td><td class="mono">11</td><td class="mono">\‾‾‾</td><td>Decay once, then full</td></tr>
+        <tr><td class="mono">5</td><td class="mono">12</td><td class="mono">////</td><td>Rise, again and again</td></tr>
+        <tr><td class="mono">6</td><td class="mono">13</td><td class="mono">/‾‾‾</td><td>Rise once, then full</td></tr>
+        <tr><td class="mono">7</td><td class="mono">14</td><td class="mono">/\/\</td><td>Up, down, up...</td></tr>
+        <tr><td class="mono">8</td><td class="mono">15</td><td class="mono">/___</td><td>Rise once, then silence</td></tr>
+      </table></div>
+      <p class="note">Emulators and the chip's different versions disagree on SSG-EG more than on anything else; check it on the console.</p>
+      <div class="tries">
+        <button class="try" data-try="ssg1">Shape 1 on a modulator: buzz</button>
+        <button class="try" data-try="ssg3">Shape 3 on the carrier: throb</button>
+      </div>
+    </section>
+
+    <section class="topic" id="pan">
+      <h2>PAN</h2>
+      <div class="knob-tag">L, R, LR (both) or off · per channel</div>
+      <p>Which speaker the channel plays from. Not stored in <code>.tfi</code> or <code>.dmp</code> files (it is a channel setting, not part of the instrument); in POLY mode the cartridge's STEREO SPREAD setting pans each note for you.</p>
+    </section>
+
+    <section class="topic" id="recipes">
+      <h2>Recipes to start from</h2>
+      <p>Load one, then shape it with the knobs above. The cartridge's sample pack has these and more as files.</p>
+      <div class="tries" id="recipes-list"></div>
+    </section>
+
+    <section class="topic" id="cookbook">
+      <h2>Tuning by ear: what to turn</h2>
+      <div class="tablewrap"><table>
+        <tr><th>It sounds...</th><th>Try</th></tr>
+        <tr><td>Too dull, muffled</td><td>Lower a modulator's TL (5-10 steps); or raise its MUL; or add feedback (FB 2-4)</td></tr>
+        <tr><td>Too harsh, buzzy, noisy</td><td>Raise the modulators' TL; lower FB; lower high modulator MULs</td></tr>
+        <tr><td>Too quiet</td><td>Lower the carriers' TL towards 0 (or leave LOUDNESS on FULL in the cartridge's settings)</td></tr>
+        <tr><td>Thin</td><td>Use an algorithm with more carriers (4-7) and detune them (DT +2 / -2); or add a carrier at MUL 0 or 1 for body</td></tr>
+        <tr><td>Clicks at the start</td><td>Lower the carriers' AR a little (28-29)</td></tr>
+        <tr><td>Clicks or cuts off at the end</td><td>Lower RR (7-9)</td></tr>
+        <tr><td>Notes ring on and smear</td><td>Raise RR; raise D2R; add RS 1-2</td></tr>
+        <tr><td>Lifeless, static</td><td>Give a modulator a faster decay than its carrier (D1R up, SL up): the tone opens and closes like a filter; or add a little FMS vibrato</td></tr>
+        <tr><td>Out of tune or clangy</td><td>Check the carriers' MUL (1, or 2 for an octave) and the modulators' high MULs (7, 9, 11, 13 are inharmonic on purpose)</td></tr>
+        <tr><td>Silent</td><td>A carrier with AR 0, TL 127 or SL 15 with fast D1R; or the channel's PAN off</td></tr>
+        <tr><td>Wants more grit (metal)</td><td>ALG 0-3, FB 6-7, modulators at TL 20-30, the carrier sustained (SL 0-2, D2R 0-1)</td></tr>
+        <tr><td>Wants to be lush (vaporwave)</td><td>ALG 4 or 5, detuned carriers, a slow attack (AR 14-20), long release (RR 3-5), a touch of vibrato</td></tr>
+      </table></div>
+    </section>
+
+    <section class="topic" id="files">
+      <h2>Saving: what the files hold</h2>
+      <p>The cartridge reads <code>.tfi</code>, <code>.dmp</code> and <code>.y12</code> from the SD card's <code>MIDI_PATCHES</code> folder (and folders inside it). Save writes all three into one <code>.zip</code>; keep the one you want.</p>
+      <div class="tablewrap"><table>
+        <tr><th>Format</th><th>From</th><th>Stores</th><th>Leaves out</th></tr>
+        <tr><td class="mono">.tfi</td><td>TFM Music Maker</td><td>ALG, FB, and per operator MUL, DT, TL, RS, AR, D1R, D2R, RR, SL, SSG</td><td>AMS, FMS, AM, PAN, LFO</td></tr>
+        <tr><td class="mono">.dmp</td><td>DefleMask</td><td>All of TFI, plus AMS, FMS and AM</td><td>PAN, LFO</td></tr>
+        <tr><td class="mono">.y12</td><td>Gens</td><td>The chip's registers, including AM, and a 15-letter name</td><td>AMS, FMS, PAN, LFO</td></tr>
+      </table></div>
+      <p>A <code>.tfi</code> is 42 bytes: the algorithm, the feedback, then four blocks of ten bytes in the order <b>OP1, OP3, OP2, OP4</b> (the chip's own order). Each block is MUL, DT (3 = no detune, 0-2 = -3..-1, 4-6 = +1..+3), TL, RS, AR, D1R, D2R, RR, SL, SSG (0 or 8-15).</p>
+      <div class="callout">
+        <h3>On the console</h3>
+        <p>In the cartridge's library, choose a patch, then press A on it again to open the editor. The D-pad picks a knob; A starts changing it (up/down by 1, left/right by 10, A or B done); C moves to the next channel; START saves (over the file, or as a new <code>.tfi</code>, <code>.dmp</code> or <code>.y12</code> in the folder you are in). Every change is heard at once.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="kb" id="kb">
+  <div class="kb-side">
+    <div class="row"><button class="btn" id="octdown" aria-label="Octave down">−</button><span id="octlabel">C3</span><button class="btn" id="octup" aria-label="Octave up">+</button></div>
+    <label class="hint"><input type="checkbox" id="hold"> Hold</label>
+  </div>
+  <div class="keys" id="keys" aria-label="Keyboard"></div>
+</div>
+
+<script>
+"use strict";
+// ======================================================================
+// The YM2612 model: rates, levels and modulation depths as the chip has
+// them (53267 Hz sample rate, envelopes stepped every 3 samples, 10-bit
+// attenuation in 0.09375 dB units, TL 8 units a step, SL 32, modulation of
+// +/-4 cycles, feedback (o1+o2) >> (10 - FB)).
+// ======================================================================
+const CHIP = 53267;
+const OPNAMES = ["OP1", "OP2", "OP3", "OP4"];
+// carriers by algorithm (OP1..OP4)
+const CARRIERS = [[3], [3], [3], [3], [1, 3], [1, 2, 3], [1, 2, 3], [0, 1, 2, 3]];
+// who modulates whom: MODS[alg][i] = the operators feeding operator i
+const MODS = [
+  [[], [0], [1], [2]],
+  [[], [], [0, 1], [2]],
+  [[], [], [1], [0, 2]],
+  [[], [0], [], [1, 2]],
+  [[], [0], [], [2]],
+  [[], [0], [0], [0]],
+  [[], [0], [], []],
+  [[], [], [], []],
+];
+const LFO_HZ = [3.98, 5.56, 6.02, 6.37, 6.88, 9.63, 48.1, 72.2];
+const FMS_CENTS = [0, 3.4, 6.7, 10, 14, 20, 40, 80];
+const AMS_ATT = [0, 15, 63, 126];
+const DT_TAB = [
+  new Array(32).fill(0),
+  [0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,4,4,4,5],
+  [1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,4,4,4,5,5,6,6,7,8,8,9,10],
+  [2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,4,4,4,5,5,6,6,7,8,8,9,10,11,12,13,14,16],
+];
+const SIN = new Float32Array(4096);
+for (let i = 0; i < 4096; i++) SIN[i] = Math.sin(2 * Math.PI * i / 4096);
+const AMP = new Float32Array(1025);
+for (let i = 0; i <= 1024; i++) AMP[i] = i >= 1023 ? 0 : Math.pow(10, -i * 0.09375 / 20);
+const sinc = x => SIN[((x - Math.floor(x)) * 4096) | 0];
+
+function op(mul, dt, tl, rs, ar, d1r, sl, d2r, rr, am = 0, ssg = 0) {
+  return { mul, dt, tl, rs, ar, d1r, sl, d2r, rr, am, ssg, mute: false };
+}
+function defaultPatch() {
+  return { name: "Init", alg: 7, fb: 0, lfo: 0, ams: 0, fms: 0, pan: 3,
+    ops: [op(1, 0, 127, 0, 31, 0, 0, 0, 8), op(1, 0, 127, 0, 31, 0, 0, 0, 8),
+          op(1, 0, 127, 0, 31, 0, 0, 0, 8), op(1, 0, 0, 0, 31, 0, 0, 0, 8)] };
+}
+let P = defaultPatch();
+
+// average envelope step per chip sample at effective rate R (0-63)
+function egInc(R) {
+  if (R <= 0) return 0;
+  if (R > 63) R = 63;
+  let tick = R < 48 ? (0.5 + (R & 3) * 0.125) * Math.pow(2, (R >> 2) - 11)
+                    : Math.min(8, (1 + (R & 3) * 0.25) * Math.pow(2, (R >> 2) - 12));
+  return tick / 3;
+}
+function keyCode(note) { return Math.max(0, Math.min(31, Math.floor((note - 12) * 4 / 12))); }
+
+class Voice {
+  constructor(note, ratio) {
+    this.note = note; this.kc = keyCode(note);
+    this.hz = 440 * Math.pow(2, (note - 69) / 12);
+    this.ratio = ratio;       // chip samples per output sample
+    this.ops = [0, 1, 2, 3].map(() => ({ ph: 0, att: 1023, stage: 0, inv: false, held: false }));
+    this.fb1 = 0; this.fb2 = 0; this.out = [0, 0, 0, 0];
+    this.released = false; this.dead = false;
+    for (let i = 0; i < 4; i++) this.ops[i].inv = !!(P.ops[i].ssg && (P.ops[i].ssg - 1) & 4);
+  }
+  release() { if (!this.released) { this.released = true; for (const o of this.ops) o.stage = 3; } }
+  eg(i) {   // advance operator i's envelope by one output sample
+    const s = this.ops[i], o = P.ops[i], ks = this.kc >> (3 - o.rs), r = this.ratio;
+    const ssg = o.ssg ? o.ssg - 1 : -1;      // shape 0-7, -1 off
+    const R = (x) => x ? Math.min(63, 2 * x + ks) : 0;
+    if (s.stage === 0) {                      // attack
+      const ra = R(o.ar);
+      if (ra >= 62) s.att = 0;
+      else s.att -= (s.att + 1) * egInc(ra) * r / 16;
+      if (s.att <= 0) { s.att = 0; s.stage = 1; }
+    } else if (s.stage === 1 || s.stage === 2) {
+      const rate = s.stage === 1 ? R(o.d1r) : R(o.d2r);
+      s.att += egInc(rate) * r * (ssg >= 0 ? 4 : 1);
+      if (s.stage === 1 && s.att >= (o.sl === 15 ? 992 : o.sl * 32)) s.stage = 2;   // (SL 15: -93 dB)
+      if (ssg >= 0 && s.att >= 512 && !s.held) {
+        if (ssg & 1) {                      // hold
+          if (ssg & 2) s.inv = !s.inv;
+          s.held = true; s.att = 512;
+        } else {                            // repeat
+          if (ssg & 2) s.inv = !s.inv;
+          s.att = 0; s.stage = 0;
+        }
+      }
+    } else if (s.stage === 3) {               // release
+      s.att += egInc(Math.min(63, 4 * o.rr + 2 + ks)) * r;
+    }
+    if (s.att > 1023) s.att = 1023;
+  }
+  level(i) {  // attenuation 0-1023 as heard, before TL
+    const s = this.ops[i];
+    if (P.ops[i].ssg && s.stage !== 3) {
+      let a = s.held ? 512 : s.att;
+      if (s.inv) a = 512 - a;
+      return a >= 512 ? 1023 : Math.max(0, a * 2);
+    }
+    return s.att;
+  }
+}
+
+// ---- the audio graph ----
+let ac = null, node = null, analyser = null, lfoPh = 0;
+const voices = [];
+function render(L, R, n, sr) {
+  const lfoOn = P.lfo > 0, lfoInc = lfoOn ? LFO_HZ[P.lfo - 1] / sr : 0;
+  const ratio = CHIP / sr;
+  const car = CARRIERS[P.alg], mods = MODS[P.alg];
+  const panL = (P.pan & 2) ? 1 : 0, panR = (P.pan & 1) ? 1 : 0;
+  for (let k = 0; k < n; k++) {
+    let am = 0, pm = 1;
+    if (lfoOn) {
+      lfoPh += lfoInc; if (lfoPh >= 1) lfoPh -= 1;
+      am = 1 - Math.abs(2 * lfoPh - 1);
+      pm = Math.pow(2, FMS_CENTS[P.fms] * Math.sin(2 * Math.PI * lfoPh) / 1200);
+    }
+    let sum = 0;
+    for (const v of voices) {
+      if (v.dead) continue;
+      let alive = false;
+      for (let i = 0; i < 4; i++) {
+        v.eg(i);
+        const o = P.ops[i];
+        const mulf = o.mul ? o.mul : 0.5;
+        const dtHz = Math.sign(o.dt) * DT_TAB[Math.abs(o.dt)][v.kc] * CHIP / 1048576;
+        v.ops[i].ph += ((v.hz + dtHz) * mulf * pm) / sr;
+        if (v.ops[i].ph > 1e6) v.ops[i].ph -= 1e6;
+      }
+      for (let i = 0; i < 4; i++) {
+        const o = P.ops[i], s = v.ops[i];
+        let att = v.level(i) + o.tl * 8 + (o.am && lfoOn ? AMS_ATT[P.ams] * am : 0);
+        if (att >= 1023) { v.out[i] = 0; } else {
+          let m = 0;
+          if (i === 0) { if (P.fb) m = (v.fb1 + v.fb2) * Math.pow(2, P.fb - 7); }
+          else for (const j of mods[i]) m += v.out[j] * 4;
+          v.out[i] = sinc(s.ph + m) * AMP[att | 0];
+          if (s.stage !== 3 || s.att < 1000) alive = true;
+        }
+        if (i === 0) { v.fb2 = v.fb1; v.fb1 = v.out[0]; }
+        if (o.mute) v.out[i] = 0;
+      }
+      let vo = 0;
+      for (const c of car) vo += v.out[c];
+      sum += vo * 0.4;
+      if (v.released && !alive) v.dead = true;
+    }
+    const y = Math.tanh(sum);
+    L[k] = y * panL; R[k] = y * panR;
+  }
+  for (let i = voices.length - 1; i >= 0; i--) if (voices[i].dead) voices.splice(i, 1);
+}
+function startAudio() {
+  if (ac) { ac.resume(); return; }
+  const C = window.AudioContext || window.webkitAudioContext;
+  if (!C) { status("This browser has no Web Audio: the synth cannot play here."); return; }
+  ac = new C();
+  node = ac.createScriptProcessor(1024, 0, 2);
+  node.onaudioprocess = e => render(e.outputBuffer.getChannelData(0), e.outputBuffer.getChannelData(1), e.outputBuffer.length, ac.sampleRate);
+  analyser = ac.createAnalyser(); analyser.fftSize = 2048;
+  node.connect(analyser); analyser.connect(ac.destination);
+  document.getElementById("sound").textContent = "Sound on";
+  drawScope();
+}
+const held = new Map();     // note -> voice
+function noteOn(note) {
+  startAudio();
+  if (!ac) return;
+  noteOff(note, true);
+  const v = new Voice(note, CHIP / ac.sampleRate);
+  voices.push(v); held.set(note, v);
+  if (voices.length > 8) voices.shift();
+  keyEl(note, true);
+}
+function noteOff(note, quiet) {
+  const v = held.get(note);
+  if (v) { v.release(); held.delete(note); }
+  if (!quiet) keyEl(note, false);
+}
+let demoTimers = [];
+function demo(kind) {
+  for (const t of demoTimers) clearTimeout(t);
+  demoTimers = [];
+  for (const n of [...held.keys()]) noteOff(n);
+  const at = (ms, f) => demoTimers.push(setTimeout(f, ms));
+  const play = (n, start, len) => { at(start, () => noteOn(n)); at(start + len, () => noteOff(n)); };
+  if (kind === "long") { play(60, 0, 1400); }
+  else if (kind === "lowhigh") { play(36, 0, 900); play(84, 1100, 900); }
+  else if (kind === "chord") { [60, 64, 67].forEach(n => play(n, 0, 1600)); }
+  else { [60, 64, 67, 72].forEach((n, i) => play(n, i * 260, 230)); play(60, 1200, 900); }
+}
+
+// ======================================================================
+// The panel
+// ======================================================================
+const $ = id => document.getElementById(id);
+function status(t) { $("status").textContent = t; }
+
+const GLOBALS = [
+  { k: "alg", label: "ALG", min: 0, max: 7 },
+  { k: "fb", label: "FB", min: 0, max: 7 },
+  { k: "ams", label: "AMS", min: 0, max: 3 },
+  { k: "fms", label: "FMS", min: 0, max: 7 },
+];
+const OPCTL = [
+  { k: "mul", label: "MUL", min: 0, max: 15 },
+  { k: "dt", label: "DT", min: -3, max: 3 },
+  { k: "tl", label: "TL", min: 0, max: 127 },
+  { k: "ar", label: "AR", min: 0, max: 31 },
+  { k: "d1r", label: "D1R", min: 0, max: 31 },
+  { k: "sl", label: "SL", min: 0, max: 15 },
+  { k: "d2r", label: "D2R", min: 0, max: 31 },
+  { k: "rr", label: "RR", min: 0, max: 15 },
+  { k: "rs", label: "RS", min: 0, max: 3 },
+];
+function ctlRow(id, label, min, max, val, oninput) {
+  const d = document.createElement("div");
+  d.className = "ctl";
+  d.innerHTML = `<label for="${id}">${label}</label><input type="range" id="${id}" min="${min}" max="${max}" step="1" value="${val}"><output for="${id}">${val}</output>`;
+  const r = d.querySelector("input"), o = d.querySelector("output");
+  r.addEventListener("input", () => { o.textContent = fmt(label, +r.value); oninput(+r.value); });
+  o.textContent = fmt(label, val);
+  return d;
+}
+function fmt(label, v) { return label === "DT" && v > 0 ? "+" + v : String(v); }
+
+function buildGlobals() {
+  const g = $("globals");
+  g.innerHTML = "";
+  for (const c of GLOBALS)
+    g.appendChild(ctlRow("g-" + c.k, c.label, c.min, c.max, P[c.k], v => { P[c.k] = v; if (c.k === "alg") refreshAll(); else drawDiagram(); }));
+  const lfo = document.createElement("div");
+  lfo.className = "ctl";
+  lfo.innerHTML = `<label for="g-lfo">LFO</label><select id="g-lfo"><option value="0">off</option>${LFO_HZ.map((h, i) => `<option value="${i + 1}">${i}: ${h} Hz</option>`).join("")}</select><span></span>`;
+  const sel = lfo.querySelector("select");
+  sel.value = String(P.lfo);
+  sel.addEventListener("change", () => { P.lfo = +sel.value; });
+  g.appendChild(lfo);
+  const pan = document.createElement("div");
+  pan.className = "ctl";
+  pan.innerHTML = `<label for="g-pan">PAN</label><select id="g-pan"><option value="3">LR</option><option value="2">L</option><option value="1">R</option><option value="0">off</option></select><span></span>`;
+  const ps = pan.querySelector("select");
+  ps.value = String(P.pan);
+  ps.addEventListener("change", () => { P.pan = +ps.value; });
+  g.appendChild(pan);
+}
+
+function buildOps() {
+  const box = $("ops");
+  box.innerHTML = "";
+  const car = CARRIERS[P.alg];
+  for (let i = 0; i < 4; i++) {
+    const o = P.ops[i], isCar = car.includes(i);
+    const d = document.createElement("div");
+    d.className = "op " + (isCar ? "carrier" : "modulator");
+    d.innerHTML = `<div class="op-head"><b>OP${i + 1}</b><span class="role">${isCar ? "carrier: heard" : "modulator: shapes the tone"}${i === 0 && P.fb ? " · FB " + P.fb : ""}</span></div><canvas width="240" height="46" aria-label="OP${i + 1} envelope"></canvas>`;
+    for (const c of OPCTL) d.appendChild(ctlRow(`op${i}-${c.k}`, c.label, c.min, c.max, o[c.k], v => { o[c.k] = v; drawEnv(i); }));
+    const f = document.createElement("div");
+    f.className = "flags";
+    f.innerHTML = `<label><input type="checkbox" id="op${i}-am"> AM</label>
+      <label for="op${i}-ssg">SSG</label><select id="op${i}-ssg"><option value="0">off</option>${[1,2,3,4,5,6,7,8].map(s => `<option value="${s}">${s}</option>`).join("")}</select>
+      <label><input type="checkbox" id="op${i}-mute"> mute</label>`;
+    d.appendChild(f);
+    const am = f.querySelector(`#op${i}-am`), ssg = f.querySelector(`#op${i}-ssg`), mute = f.querySelector(`#op${i}-mute`);
+    am.checked = !!o.am; ssg.value = String(o.ssg); mute.checked = !!o.mute;
+    am.addEventListener("change", () => { o.am = am.checked ? 1 : 0; });
+    ssg.addEventListener("change", () => { o.ssg = +ssg.value; drawEnv(i); });
+    mute.addEventListener("change", () => { o.mute = mute.checked; });
+    box.appendChild(d);
+  }
+  for (let i = 0; i < 4; i++) drawEnv(i);
+}
+
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+// an operator's envelope over 1.6 s held, then 0.6 s released (C4), as level
+function drawEnv(i) {
+  const cv = $("ops").querySelectorAll("canvas")[i];
+  if (!cv) return;
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth || 240, h = cv.clientHeight || 46;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext("2d");
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+  const sr = 2000, holdS = 1.6, relS = 0.6, v = new Voice(60, CHIP / sr);
+  const isCar = CARRIERS[P.alg].includes(i);
+  g.strokeStyle = cssVar(isCar ? "--carrier" : "--mod");
+  g.lineWidth = 1.6;
+  g.beginPath();
+  const total = (holdS + relS) * sr;
+  for (let k = 0; k < total; k++) {
+    if (k === holdS * sr) v.release();
+    v.eg(i);
+    const lvl = 1 - Math.min(1023, v.level(i)) / 1023;   // in dB, top = peak
+    const x = k / total * w, y = 3 + (1 - lvl) * (h - 6);
+    k ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.stroke();
+  g.strokeStyle = cssVar("--muted");
+  g.setLineDash([3, 3]);
+  g.beginPath();
+  const xr = holdS / (holdS + relS) * w;
+  g.moveTo(xr, 0); g.lineTo(xr, h); g.stroke();
+  g.setLineDash([]);
+}
+
+// ---- algorithm diagrams ----
+const LAYOUT = [   // operator positions (column, row) on a 4 x 3 grid, then the output
+  [[0, 1], [1, 1], [2, 1], [3, 1]],
+  [[0, 0], [0, 2], [1, 1], [2, 1]],
+  [[0, 0], [0, 2], [1, 2], [2, 1]],
+  [[0, 0], [1, 0], [1, 2], [2, 1]],
+  [[0, 0], [1, 0], [0, 2], [1, 2]],
+  [[0, 1], [1, 0], [1, 1], [1, 2]],
+  [[0, 0], [1, 0], [1, 1], [1, 2]],
+  [[0, 0], [1, 0], [2, 0], [3, 0]],
+];
+function algSVG(a, big) {
+  const W = big ? 520 : 120, H = big ? 150 : 64, bw = big ? 54 : 18, bh = big ? 30 : 13;
+  const cols = 5, cx = c => (c + 0.5) * W / cols, cy = r => (r + 0.5) * H / 3;
+  const pos = LAYOUT[a].map(([c, r]) => [cx(c), cy(r)]);
+  const outX = cx(4), outY = cy(1);
+  const car = CARRIERS[a], mods = MODS[a];
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Algorithm ${a}">`;
+  const line = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--muted)" stroke-width="${big ? 1.6 : 1}"/>`;
+  for (let i = 0; i < 4; i++) for (const j of mods[i]) s += line(pos[j][0] + bw / 2, pos[j][1], pos[i][0] - bw / 2, pos[i][1]);
+  for (const c of car) s += line(pos[c][0] + bw / 2, pos[c][1], outX - (big ? 18 : 6), outY);
+  // OP1's feedback loop (drawn when FB is on)
+  const [fx, fy] = pos[0];
+  if (big && P.fb) s += `<path d="M ${fx + bw / 2} ${fy - bh / 4} q ${big ? 14 : 6} ${-(bh)} ${-(bw / 2 + (big ? 2 : 1))} ${-(bh / 2 + (big ? 8 : 3))} q ${-(bw / 2 + (big ? 14 : 6))} ${-(big ? 2 : 1)} ${-(bw / 2)} ${bh / 2 + (big ? 8 : 3)}" fill="none" stroke="var(--mod)" stroke-width="1.4"/>`;
+  for (let i = 0; i < 4; i++) {
+    const isCar = car.includes(i);
+    s += `<rect x="${pos[i][0] - bw / 2}" y="${pos[i][1] - bh / 2}" width="${bw}" height="${bh}" rx="${big ? 5 : 2}" fill="${isCar ? "var(--carrier)" : "var(--mod)"}"/>`;
+    s += `<text x="${pos[i][0]}" y="${pos[i][1] + (big ? 5 : 3.5)}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="${big ? 14 : 9}" font-weight="600" fill="var(--panel)">${big ? "OP" + (i + 1) : i + 1}</text>`;
+  }
+  s += `<text x="${outX}" y="${outY + (big ? 5 : 3)}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="${big ? 13 : 8}" fill="var(--muted)">OUT</text>`;
+  if (big && P.fb) s += `<text x="${fx}" y="${fy - bh / 2 - 14}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--mod)">FB ${P.fb}</text>`;
+  return s + "</svg>";
+}
+function drawDiagram() {
+  $("diagram").innerHTML = algSVG(P.alg, true);
+  document.querySelectorAll(".alg-card").forEach(c => c.classList.toggle("on", +c.dataset.alg === P.alg));
+}
+function buildAlgGrid() {
+  const g = $("alggrid");
+  g.innerHTML = "";
+  for (let a = 0; a < 8; a++) {
+    const b = document.createElement("button");
+    b.className = "alg-card"; b.dataset.alg = a; b.type = "button";
+    b.innerHTML = `<span>ALG ${a}</span>${algSVG(a, false)}`;
+    b.addEventListener("click", () => { P.alg = a; refreshAll(); demo("phrase"); });
+    g.appendChild(b);
+  }
+}
+function refreshAll() {
+  buildGlobals(); buildOps(); drawDiagram();
+  $("pname").value = P.name || "";
+}
+
+// ---- the scope ----
+function drawScope() {
+  const cv = $("scope"), dpr = window.devicePixelRatio || 1;
+  const buf = new Float32Array(analyser.fftSize);
+  const tick = () => {
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+    const g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    analyser.getFloatTimeDomainData(buf);
+    let start = 0;                       // a rising zero crossing: a steady picture
+    for (let i = 1; i < buf.length / 2; i++) if (buf[i - 1] <= 0 && buf[i] > 0) { start = i; break; }
+    g.strokeStyle = cssVar("--accent"); g.lineWidth = 1.5; g.beginPath();
+    const n = 700;
+    for (let i = 0; i < n; i++) {
+      const x = i / n * w, y = h / 2 - buf[start + i] * h * 0.45;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke();
+    requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+// ======================================================================
+// "Try it": each sets knobs, then plays
+// ======================================================================
+function set(patch) { P = patch; refreshAll(); }
+function epiano() {
+  return { name: "E.Piano", alg: 4, fb: 0, lfo: 0, ams: 0, fms: 0, pan: 3,
+    ops: [op(1, 0, 30, 2, 31, 9, 4, 2, 6), op(1, 0, 4, 1, 31, 7, 3, 2, 6),
+          op(14, 0, 42, 2, 31, 14, 6, 4, 7), op(1, 0, 4, 1, 31, 6, 3, 2, 6)] };
+}
+// a simple pair to demonstrate on: ALG 4, OP1 -> OP2, OP3/OP4 silent
+function pair(modTL, modMul = 1, carMul = 1) {
+  const p = defaultPatch();
+  p.alg = 4; p.name = "Lesson";
+  p.ops[0] = op(modMul, 0, modTL, 0, 31, 0, 0, 0, 8);
+  p.ops[1] = op(carMul, 0, 0, 0, 31, 0, 0, 0, 8);
+  p.ops[2] = op(1, 0, 127, 0, 31, 0, 0, 0, 8);
+  p.ops[3] = op(1, 0, 127, 0, 31, 0, 0, 0, 8);
+  return p;
+}
+const TRIES = {
+  sine: () => { const p = defaultPatch(); p.name = "Sine"; set(p); demo("phrase"); },
+  mod40: () => { set(pair(40)); demo("phrase"); },
+  mod20: () => { set(pair(20)); demo("phrase"); },
+  mod8: () => { set(pair(8)); demo("phrase"); },
+  alg0: () => { const p = defaultPatch(); p.name = "Alg 0"; p.alg = 0; p.fb = 4;
+    p.ops = [op(1, 0, 30, 0, 31, 0, 0, 0, 8), op(2, 0, 34, 0, 31, 0, 0, 0, 8), op(1, 0, 30, 0, 31, 0, 0, 0, 8), op(1, 0, 0, 0, 31, 2, 2, 0, 8)]; set(p); demo("phrase"); },
+  alg4: () => { set(epiano()); demo("phrase"); },
+  alg7: () => { const p = defaultPatch(); p.name = "Organ"; p.alg = 7;
+    p.ops = [op(1, 0, 14, 0, 31, 0, 0, 0, 10), op(2, 0, 16, 0, 31, 0, 0, 0, 10), op(4, 0, 22, 0, 31, 0, 0, 0, 10), op(0, 0, 14, 0, 31, 0, 0, 0, 10)]; set(p); demo("chord"); },
+  "tl-dark": () => { set(pair(50)); demo("phrase"); },
+  "tl-mid": () => { set(pair(30)); demo("phrase"); },
+  "tl-bright": () => { set(pair(12)); demo("phrase"); },
+  "tl-quiet": () => { const p = pair(30); p.ops[1].tl = 24; set(p); demo("phrase"); },
+  mul1: () => { set(pair(26, 1)); demo("phrase"); },
+  mul2: () => { set(pair(26, 2)); demo("phrase"); },
+  mul3: () => { set(pair(26, 3)); demo("phrase"); },
+  mul7: () => { const p = pair(30, 7); p.ops[1].d1r = 4; p.ops[1].sl = 15; p.ops[1].rr = 4; p.ops[0].d1r = 8; p.ops[0].sl = 15; set(p); demo("phrase"); },
+  mulc2: () => { set(pair(30, 1, 2)); demo("phrase"); },
+  fb0: () => { fbDemo(0); }, fb3: () => { fbDemo(3); }, fb5: () => { fbDemo(5); }, fb7: () => { fbDemo(7); },
+  dt0: () => { set(chorus(0)); demo("long"); },
+  dt3: () => { set(chorus(3)); demo("long"); },
+  "env-organ": () => { const p = pair(34); setEnv(p, [31, 0, 0, 0, 8]); set(p); demo("phrase"); },
+  "env-pluck": () => { const p = pair(26); setEnv(p, [31, 12, 15, 0, 8]); p.ops[0].d1r = 14; p.ops[0].sl = 15; set(p); demo("phrase"); },
+  "env-piano": () => { const p = pair(30); setEnv(p, [31, 6, 4, 3, 7]); p.ops[1].rs = 2; set(p); demo("long"); },
+  "env-pad": () => { const p = pair(36); setEnv(p, [12, 2, 2, 0, 4]); p.ops[0].ar = 10; set(p); demo("long"); },
+  "env-filter": () => { const p = pair(14); p.ops[0].d1r = 8; p.ops[0].sl = 15; p.ops[1].d1r = 2; p.ops[1].sl = 2; p.ops[1].rr = 6; set(p); demo("phrase"); },
+  rs0: () => { const p = pair(28); setEnv(p, [31, 8, 15, 0, 7]); set(p); demo("lowhigh"); },
+  rs3: () => { const p = pair(28); setEnv(p, [31, 8, 15, 0, 7]); p.ops[0].rs = 3; p.ops[1].rs = 3; set(p); demo("lowhigh"); },
+  vib: () => { const p = pair(30); p.lfo = 2; p.fms = 3; set(p); demo("long"); },
+  trem: () => { const p = pair(30); p.lfo = 2; p.ams = 3; p.ops[1].am = 1; set(p); demo("long"); },
+  wah: () => { const p = pair(22); p.lfo = 1; p.ams = 3; p.ops[0].am = 1; set(p); demo("long"); },
+  ssg1: () => { const p = pair(20); p.ops[0].ssg = 1; p.ops[0].d1r = 18; set(p); demo("long"); },
+  ssg3: () => { const p = pair(34); p.ops[1].ssg = 3; p.ops[1].d1r = 16; set(p); demo("long"); },
+};
+function setEnv(p, [ar, d1r, sl, d2r, rr]) {
+  for (const i of [0, 1]) Object.assign(p.ops[i], { ar, d1r, sl, d2r, rr });
+}
+function fbDemo(fb) {
+  const p = defaultPatch(); p.name = "Feedback " + fb; p.alg = 7; p.fb = fb;
+  p.ops = [op(1, 0, 0, 0, 31, 0, 0, 0, 8), op(1, 0, 127, 0, 31, 0, 0, 0, 8), op(1, 0, 127, 0, 31, 0, 0, 0, 8), op(1, 0, 127, 0, 31, 0, 0, 0, 8)];
+  set(p); demo("phrase");
+}
+function chorus(dt) {
+  const p = defaultPatch(); p.name = dt ? "Chorus" : "Plain"; p.alg = 4;
+  p.ops = [op(1, dt, 34, 0, 20, 2, 2, 0, 5), op(1, dt, 6, 0, 18, 1, 1, 0, 5), op(1, -dt, 34, 0, 20, 2, 2, 0, 5), op(1, -dt, 6, 0, 18, 1, 1, 0, 5)];
+  return p;
+}
+
+// recipes: [name, alg, fb, ops as (mul, dt, tl, rs, ar, d1r, sl, d2r, rr)]
+const RECIPES = [
+  ["E.Piano", 4, 0, [[1,0,30,2,31,9,4,2,6],[1,0,4,1,31,7,3,2,6],[14,0,42,2,31,14,6,4,7],[1,0,4,1,31,6,3,2,6]]],
+  ["Vapor Keys", 4, 1, [[1,2,34,1,30,6,5,2,5],[1,2,6,1,28,5,3,1,4],[14,-2,44,1,31,10,7,3,5],[1,-2,6,1,28,5,3,1,4]], { lfo: 2, fms: 2 }],
+  ["Finger Bass", 0, 5, [[0,0,28,1,31,12,3,3,8],[1,0,38,1,31,14,4,3,8],[1,1,30,1,31,10,3,2,8],[1,0,0,1,31,6,2,4,9]]],
+  ["Slap Bass", 0, 6, [[1,0,20,2,31,18,5,6,9],[4,0,36,2,31,20,6,8,9],[1,2,24,2,31,12,3,4,9],[1,0,0,1,31,8,2,5,10]]],
+  ["Synth Bass", 4, 7, [[1,0,22,1,31,8,2,2,9],[1,0,4,1,31,6,2,3,9],[2,3,26,1,31,9,3,2,9],[1,-3,6,1,31,6,2,3,9]]],
+  ["Brass", 4, 6, [[1,0,24,1,18,4,2,2,7],[1,0,4,1,22,3,1,1,7],[1,1,26,1,18,4,2,2,7],[1,-1,6,1,22,3,1,1,7]]],
+  ["Strings", 4, 3, [[1,1,30,0,14,2,1,0,6],[1,0,8,0,14,2,1,0,6],[2,-1,34,0,14,2,1,0,6],[1,-1,8,0,14,2,1,0,6]], { lfo: 2, fms: 2 }],
+  ["Warm Pad", 4, 2, [[1,2,34,0,10,1,1,0,5],[1,0,10,0,10,1,1,0,5],[1,-2,36,0,10,1,1,0,5],[1,1,10,0,10,1,1,0,5]]],
+  ["Drawbar Organ", 7, 0, [[1,0,14,0,31,0,0,0,10],[2,0,16,0,31,0,0,0,10],[4,0,22,0,31,0,0,0,10],[0,0,14,0,31,0,0,0,10]]],
+  ["Tubular Bell", 4, 2, [[7,0,30,2,31,6,5,2,4],[1,0,6,1,31,5,4,2,4],[11,1,34,2,31,7,5,2,4],[2,0,10,1,31,5,4,2,4]]],
+  ["Marimba", 4, 0, [[4,0,28,2,31,16,8,6,7],[1,0,4,2,31,12,6,6,7],[10,0,38,2,31,18,8,7,8],[1,0,8,2,31,12,6,6,7]]],
+  ["Saw Lead", 0, 7, [[1,0,20,1,31,2,1,0,9],[1,0,24,1,31,2,1,0,9],[1,1,26,1,31,2,1,0,9],[1,0,2,1,31,2,1,0,9]], { lfo: 2, fms: 2 }],
+  ["Supersaw", 7, 4, [[1,3,10,0,30,1,1,0,7],[1,1,10,0,30,1,1,0,7],[1,-1,10,0,30,1,1,0,7],[1,-3,10,0,30,1,1,0,7]]],
+  ["Metal Guitar", 1, 7, [[1,0,26,1,31,2,1,0,7],[3,0,34,1,31,3,2,0,7],[1,0,22,1,31,1,1,0,7],[1,0,0,1,31,2,2,1,8]]],
+  ["Palm Mute", 0, 6, [[1,0,24,2,31,14,6,8,9],[2,0,30,2,31,12,6,8,9],[1,0,24,2,31,8,5,6,9],[1,0,0,2,31,10,5,8,10]]],
+  ["Kick", 0, 4, [[0,0,16,3,31,18,10,10,12],[1,0,30,3,31,18,10,10,12],[0,0,26,3,31,16,10,10,12],[0,0,0,3,31,14,9,10,12]]],
+  ["Snare", 4, 7, [[15,0,6,3,31,18,12,12,12],[1,0,4,3,31,16,11,12,12],[12,3,4,3,31,18,12,12,12],[1,0,8,3,31,16,11,12,12]]],
+];
+function recipe(r) {
+  const [name, alg, fb, ops, extra] = r;
+  const p = { name, alg, fb, lfo: 0, ams: 0, fms: 0, pan: 3, ops: ops.map(o => op(...o)) };
+  Object.assign(p, extra || {});
+  return p;
+}
+function buildRecipes() {
+  const box = $("recipes-list");
+  for (const r of RECIPES) {
+    const b = document.createElement("button");
+    b.className = "try"; b.type = "button"; b.textContent = r[0];
+    b.addEventListener("click", () => { set(recipe(r)); demo(/Pad|Strings|Organ|Bell/.test(r[0]) ? "chord" : "phrase"); status("Loaded " + r[0] + ". Shape it with the sliders, then Save."); });
+    box.appendChild(b);
+  }
+}
+
+// ======================================================================
+// Files: .tfi .dmp .y12 in (open) and out (one .zip with all three)
+// ======================================================================
+const FILE_ORDER = [0, 2, 1, 3];            // the files list OP1 OP3 OP2 OP4
+const dtReg = d => d >= 0 ? d : 4 - d;      // register: 0-3 = 0..+3, 4-7 = -0..-3
+const dtFromReg = r => (r & 4) ? -(r & 3) : (r & 3);
+const ssgOut = s => s ? 8 + s - 1 : 0;
+const ssgIn = r => (r & 8) ? (r & 7) + 1 : 0;
+function toTFI(p) {
+  const b = new Uint8Array(42);
+  b[0] = p.alg; b[1] = p.fb;
+  FILE_ORDER.forEach((oi, k) => {
+    const o = p.ops[oi], s = 2 + k * 10;
+    b.set([o.mul, o.dt + 3, o.tl, o.rs, o.ar, o.d1r, o.d2r, o.rr, o.sl, ssgOut(o.ssg)], s);
+  });
+  return b;
+}
+function toDMP(p) {
+  const b = new Uint8Array(51);
+  b.set([0x0B, 0x02, 0x01, p.fms, p.fb, p.alg, p.ams]);
+  FILE_ORDER.forEach((oi, k) => {
+    const o = p.ops[oi], s = 7 + k * 11;
+    b.set([o.mul, o.tl, o.ar, o.d1r, o.sl, o.rr, o.am, o.rs, o.dt + 3, o.d2r, ssgOut(o.ssg)], s);
+  });
+  return b;
+}
+function toY12(p) {
+  const b = new Uint8Array(128);
+  FILE_ORDER.forEach((oi, k) => {
+    const o = p.ops[oi], s = k * 16;
+    b.set([dtReg(o.dt) << 4 | o.mul, o.tl, o.rs << 6 | o.ar, o.am << 7 | o.d1r, o.d2r, o.sl << 4 | o.rr, ssgOut(o.ssg)], s);
+  });
+  b[64] = p.alg; b[65] = p.fb;
+  const nm = (p.name || "").slice(0, 15);
+  for (let i = 0; i < nm.length; i++) b[80 + i] = nm.charCodeAt(i) & 0x7F;
+  return b;
+}
+function fromFile(name, d) {
+  const ext = name.toLowerCase().split(".").pop();
+  const base = name.replace(/\.[^.]*$/, "").slice(0, 15);
+  const p = defaultPatch();
+  p.name = base;
+  const clampDt = v => Math.max(-3, Math.min(3, v));
+  if (ext === "tfi" && d.length >= 42) {
+    p.alg = d[0] & 7; p.fb = d[1] & 7;
+    FILE_ORDER.forEach((oi, k) => {
+      const s = d.subarray(2 + k * 10);
+      p.ops[oi] = op(s[0] & 15, clampDt((s[1] & 7) - 3), s[2] & 127, s[3] & 3, s[4] & 31, s[5] & 31, s[8] & 15, s[6] & 31, s[7] & 15, 0, ssgIn(s[9]));
+    });
+    return p;
+  }
+  if (ext === "dmp" && d.length >= 3) {
+    let head, data;
+    if (d[0] === 0x0B) { if (d[1] !== 2 && d[1] !== 0x42) return null; if (d[2] !== 1) return "psg"; head = 3; data = 7; }
+    else if (d[0] === 0x09) { if (d[1] !== 1) return "psg"; head = 3; data = 7; }
+    else if (d[0] === 0x00) { head = 1; data = 5; }
+    else { if (d[1] !== 1) return "psg"; head = 2; data = 6; }
+    if (d.length < data + 44) return null;
+    p.fms = d[head] & 7; p.fb = d[head + 1] & 7; p.alg = d[head + 2] & 7; p.ams = d[head + 3] & 3;
+    FILE_ORDER.forEach((oi, k) => {
+      const s = d.subarray(data + k * 11);
+      p.ops[oi] = op(s[0] & 15, clampDt((s[8] & 7) - 3), s[1] & 127, s[7] & 3, s[2] & 31, s[3] & 31, s[4] & 15, s[9] & 31, s[5] & 15, s[6] ? 1 : 0, ssgIn(s[10]));
+    });
+    if (p.fms || p.ams) p.lfo = 2;
+    return p;
+  }
+  if (ext === "y12" && d.length >= 128) {
+    FILE_ORDER.forEach((oi, k) => {
+      const s = d.subarray(k * 16);
+      p.ops[oi] = op(s[0] & 15, dtFromReg(s[0] >> 4 & 7), s[1] & 127, s[2] >> 6, s[2] & 31, s[3] & 31, s[5] >> 4, s[4] & 31, s[5] & 15, s[3] >> 7, ssgIn(s[6]));
+    });
+    p.alg = d[64] & 7; p.fb = d[65] & 7;
+    return p;
+  }
+  return null;
+}
+
+// a .zip (stored, no compression) of the three files
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(b) { let c = 0xFFFFFFFF; for (const x of b) c = CRC[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function makeZip(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let off = 0;
+  for (const f of files) {
+    const nm = enc.encode(f.name), crc = crc32(f.data), n = f.data.length;
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint32(14, crc, true);
+    h.setUint32(18, n, true); h.setUint32(22, n, true); h.setUint16(26, nm.length, true);
+    parts.push(new Uint8Array(h.buffer), nm, f.data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true);
+    c.setUint32(16, crc, true); c.setUint32(20, n, true); c.setUint32(24, n, true);
+    c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+    central.push(new Uint8Array(c.buffer), nm);
+    off += 30 + nm.length + n;
+  }
+  const csize = central.reduce((a, b) => a + b.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true);
+  e.setUint32(12, csize, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: "application/zip" });
+}
+async function save() {
+  P.name = ($("pname").value || "patch").replace(/[^A-Za-z0-9 ._-]/g, "").trim() || "patch";
+  const base = P.name.replace(/\s+/g, " ");
+  const zip = makeZip([{ name: base + ".tfi", data: toTFI(P) }, { name: base + ".dmp", data: toDMP(P) }, { name: base + ".y12", data: toY12(P) }]);
+  const dl = window.claude && window.claude.use ? await window.claude.use("downloads").catch(() => null) : null;
+  if (dl) {
+    try { await dl.save({ filename: base + ".zip", data: zip }); status("Saved " + base + ".zip: unzip it into MIDI_PATCHES on the SD card."); }
+    catch (e) { status(e && e.code === "declined" ? "Not saved." : "This view cannot save files (" + ((e && e.code) || "unavailable") + "). Open docs/patch-lab.html from the repository to save."); }
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(zip); a.download = base + ".zip";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  status("Saved " + base + ".zip (if your browser allows downloads here): unzip it into MIDI_PATCHES.");
+}
+
+// ======================================================================
+// The keyboard
+// ======================================================================
+let octave = 4;          // the left key is C(octave - 1)... C3 by default
+const WHITE = [0, 2, 4, 5, 7, 9, 11], BLACKS = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 };
+const KEYMAP = "zsxdcvgbhnjm,l.;/";                 // lower octave
+const KEYMAP2 = "q2w3er5t6y7ui9o0p";                // upper octave
+function base() { return (octave) * 12; }
+function buildKeys() {
+  const box = $("keys");
+  box.innerHTML = "";
+  const octs = window.innerWidth < 640 ? 1 : 2, nW = octs * 7 + 1;
+  for (let o = 0; o <= octs; o++) for (let k = 0; k < 12; k++) {
+    if (o === octs && k > 0) break;
+    const n = base() + o * 12 + k, isB = k in BLACKS;
+    const wi = o * 7 + (isB ? BLACKS[k] : WHITE.indexOf(k));
+    const el = document.createElement("div");
+    el.className = "key " + (isB ? "black" : "white");
+    el.dataset.note = n;
+    const w = 100 / nW;
+    el.style.left = isB ? `calc(${(wi + 1) * w}% - ${w * 0.3}%)` : `${wi * w}%`;
+    el.style.width = isB ? `${w * 0.6}%` : `${w}%`;
+    if (!isB && k === 0) el.innerHTML = `<small>C${Math.floor(n / 12) - 1}</small>`;
+    box.appendChild(el);
+  }
+  $("octlabel").textContent = "C" + (octave - 1);
+}
+function keyEl(note, down) {
+  const el = $("keys").querySelector(`[data-note="${note}"]`);
+  if (el) el.classList.toggle("down", down);
+}
+const pointers = new Map();
+$("keys").addEventListener("pointerdown", e => {
+  const k = e.target.closest(".key"); if (!k) return;
+  e.preventDefault();
+  $("keys").setPointerCapture(e.pointerId);
+  const n = +k.dataset.note;
+  if ($("hold").checked && held.has(n)) { noteOff(n); return; }
+  pointers.set(e.pointerId, n); noteOn(n);
+});
+$("keys").addEventListener("pointermove", e => {
+  if (!pointers.has(e.pointerId)) return;
+  const el = document.elementFromPoint(e.clientX, e.clientY), k = el && el.closest && el.closest(".key");
+  if (!k) return;
+  const n = +k.dataset.note, was = pointers.get(e.pointerId);
+  if (n !== was) { if (!$("hold").checked) noteOff(was); pointers.set(e.pointerId, n); noteOn(n); }
+});
+const up = e => { const n = pointers.get(e.pointerId); if (n === undefined) return; pointers.delete(e.pointerId); if (!$("hold").checked) noteOff(n); };
+$("keys").addEventListener("pointerup", up);
+$("keys").addEventListener("pointercancel", up);
+const kbDown = new Set();
+window.addEventListener("keydown", e => {
+  if (e.target.matches("input[type=text], select, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
+  const c = e.key.toLowerCase();
+  let i = KEYMAP.indexOf(c), n = -1;
+  if (i >= 0) n = base() + i; else if ((i = KEYMAP2.indexOf(c)) >= 0) n = base() + 12 + i;
+  if (n < 0 || e.repeat) return;
+  e.preventDefault();
+  kbDown.add(c); noteOn(n);
+});
+window.addEventListener("keyup", e => {
+  const c = e.key.toLowerCase();
+  if (!kbDown.has(c)) return;
+  kbDown.delete(c);
+  let i = KEYMAP.indexOf(c), n = -1;
+  if (i >= 0) n = base() + i; else if ((i = KEYMAP2.indexOf(c)) >= 0) n = base() + 12 + i;
+  if (n >= 0 && !$("hold").checked) noteOff(n);
+});
+$("octdown").addEventListener("click", () => { octave = Math.max(1, octave - 1); buildKeys(); });
+$("octup").addEventListener("click", () => { octave = Math.min(7, octave + 1); buildKeys(); });
+$("hold").addEventListener("change", () => { if (!$("hold").checked) for (const n of [...held.keys()]) noteOff(n); });
+window.addEventListener("resize", () => { buildKeys(); for (let i = 0; i < 4; i++) drawEnv(i); });
+
+// ======================================================================
+$("sound").addEventListener("click", () => { startAudio(); demo("phrase"); });
+$("init").addEventListener("click", () => { set(defaultPatch()); status("A single sine on OP4. Bring in the others by lowering their TL."); });
+$("save").addEventListener("click", save);
+$("pname").addEventListener("input", () => { P.name = $("pname").value; });
+$("open").addEventListener("change", async () => {
+  const f = $("open").files[0]; if (!f) return;
+  const d = new Uint8Array(await f.arrayBuffer());
+  const p = fromFile(f.name, d);
+  $("open").value = "";
+  if (p === "psg") { status(f.name + " is a PSG instrument, not an FM patch: open it on the cartridge's PSG targets."); return; }
+  if (!p) { status(f.name + " is not a .tfi, .dmp or .y12 FM patch this page can read."); return; }
+  set(p); status("Opened " + f.name + "."); demo("phrase");
+});
+document.querySelectorAll("[data-try]").forEach(b => b.addEventListener("click", () => {
+  const f = TRIES[b.dataset.try]; if (!f) return;
+  startAudio();
+  f();
+  document.querySelectorAll(".try.on").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  status(b.textContent + ": the synth now has these settings. Play with the keys, or change them.");
+}));
+buildAlgGrid(); buildRecipes(); buildKeys();
+set(epiano());
+</script>

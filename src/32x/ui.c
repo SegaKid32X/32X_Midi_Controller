@@ -815,6 +815,31 @@ static void draw_editor(void)
     }
     gfx_text(186, 190, "ORANGE: CARRIERS", COL_DIM);
     gfx_text(186, 199, "GREEN: MODULATORS", COL_DIM);
+    /* what the setting under the cursor does (two lines of 29) */
+    static const char *const ghint[NGLOBAL][2] = {
+        { "ALG: WHO FEEDS WHOM. MORE", "CARRIERS = FULLER, 0 = HARSH" },
+        { "FB: OP1 FEEDS ITSELF. 1-3", "SAW-LIKE, 6-7 GRIT AND NOISE" },
+        { "PAN: LEFT, RIGHT OR BOTH", "(NOT SAVED IN TFI OR DMP)" },
+        { "AMS: TREMOLO DEPTH ON THE", "OPERATORS WITH AM ON" },
+        { "FMS: VIBRATO DEPTH (THE LFO)", "2-3 SOUNDS NATURAL" },
+        { "LFO: SPEED, SHARED BY ALL", "SIX CHANNELS. OFF = NONE" },
+    };
+    static const char *const ohint[NOP_ROWS][2] = {
+        { "MUL: PITCH x THE NOTE. 0=1/2", "MOD 1 SAW, 2 SQUARE, 7 BELL" },
+        { "DT: A SLIGHT DETUNE. +2/-2 ON", "TWO CARRIERS = CHORUS" },
+        { "TL: 0 LOUDEST. CARRIER = VOL,", "MODULATOR = BRIGHTNESS" },
+        { "RS: HIGH NOTES DECAY FASTER", "1-2 FOR PIANO AND GUITAR" },
+        { "AR: ATTACK. 31 INSTANT, 12", "SLOW SWELL, 0 = SILENT" },
+        { "D1R: FALL FROM THE PEAK TO", "SL. 0 = NO FALL" },
+        { "SL: WHERE D1R STOPS. 0 = PEAK", "15 = ALL THE WAY DOWN" },
+        { "D2R: FADE WHILE HELD. 0 HOLDS", "(ORGAN), 1-5 PIANO-LIKE" },
+        { "RR: AFTER KEY UP. 15 CUTS,", "7-9 SHORT TAIL, 2-5 RINGS" },
+        { "AM: THIS OPERATOR FOLLOWS THE", "LFO TREMOLO (AMS)" },
+        { "SSG: LOOPING ENVELOPE SHAPES", "1-8, FOR BUZZ AND SWEEPS" },
+    };
+    const char *const *hint = ed_row == 0 ? ghint[ed_col] : ohint[ed_row - 1];
+    gfx_text(4, 190, hint[0], COL_HEAD);
+    gfx_text(4, 199, hint[1], COL_DIM);
     footer(ed_changing ? "UP/DOWN 1  LEFT/RIGHT 10  A OR B: DONE"
                        : "A CHANGE  B BACK  C CHAN  START SAVE");
 }
