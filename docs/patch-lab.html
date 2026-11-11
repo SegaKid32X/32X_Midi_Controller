@@ -113,6 +113,14 @@ input[type=range] { width: 100%; accent-color: var(--accent); min-width: 0; }
 .op canvas { width: 100%; height: 46px; background: var(--panel2); border-radius: 5px; display: block; }
 .op .flags { display: flex; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; color: var(--muted); align-items: center; }
 .scope { width: 100%; height: 70px; background: var(--panel2); border-radius: 8px; display: block; }
+.viz { display: flex; flex-direction: column; gap: 6px; }
+.viz-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { font: 500 12px var(--mono); background: transparent; color: var(--ink); border: 0; padding: 4px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--panel); }
+.seg button[data-viz="rainbow"][aria-pressed="true"] { background: linear-gradient(90deg, #ff3cac, #ffb13c, #f9f871, #3cffa0, #3cb4ff, #a83cff); color: #14081f; font-weight: 600; }
+.scope.rainbow { height: 160px; background: #120a24; box-shadow: 0 0 0 1px #3a1760, 0 0 28px rgba(255, 60, 172, .28); }
 .status { font-family: var(--mono); font-size: 12px; color: var(--muted); min-height: 1.4em; }
 
 /* ---- the keyboard along the bottom ---- */
@@ -154,7 +162,16 @@ input[type=range] { width: 100%; accent-color: var(--accent); min-width: 0; }
     <div class="globals" id="globals"></div>
     <div class="diagram" id="diagram" aria-label="The algorithm"></div>
     <div class="ops" id="ops"></div>
-    <canvas class="scope" id="scope" aria-label="The waveform"></canvas>
+    <div class="viz">
+      <div class="viz-head">
+        <span>Visualizer</span>
+        <div class="seg" role="group" aria-label="Visualizer mode">
+          <button type="button" data-viz="line" aria-pressed="true">Scope</button>
+          <button type="button" data-viz="rainbow" aria-pressed="false">Rainbow</button>
+        </div>
+      </div>
+      <canvas class="scope" id="scope" aria-label="The waveform"></canvas>
+    </div>
   </aside>
 
   <main class="guide">
@@ -753,28 +770,167 @@ function refreshAll() {
 }
 
 // ---- the scope ----
+// Two looks: "Scope" (a plain line) and "Rainbow" (a vaporwave scene: a striped
+// sun that swells with the volume, a scrolling neon grid, stars, rainbow
+// spectrum bars, and a glowing colour-cycling wave with trails and a reflection).
+const VIZ_KEY = "patchlab.viz";
+let vizMode = "line", scopeOn = false;
+try { if (localStorage.getItem(VIZ_KEY) === "rainbow") vizMode = "rainbow"; } catch (e) {}
+const calm = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+function setViz(m) {
+  vizMode = m;
+  document.querySelectorAll("[data-viz]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.viz === m)));
+  $("scope").classList.toggle("rainbow", m === "rainbow");
+  $("scope").setAttribute("aria-label", m === "rainbow" ? "The waveform, as a rainbow visualizer" : "The waveform");
+  try { localStorage.setItem(VIZ_KEY, m); } catch (e) {}
+}
+document.querySelectorAll("[data-viz]").forEach(b => b.addEventListener("click", () => setViz(b.dataset.viz)));
+
+const STARS = Array.from({ length: 40 }, () => [Math.random(), Math.random() * 0.55, Math.random() * 6.28, 0.5 + Math.random()]);
+const trail = [];
+let level = 0;
+
 function drawScope() {
-  const cv = $("scope"), dpr = window.devicePixelRatio || 1;
-  const buf = new Float32Array(analyser.fftSize);
-  const tick = () => {
+  if (scopeOn) return;
+  scopeOn = true;
+  const cv = $("scope");
+  const buf = new Float32Array(2048), freq = new Uint8Array(1024);
+  const tick = now => {
+    const dpr = window.devicePixelRatio || 1;
     const w = cv.clientWidth, h = cv.clientHeight;
-    if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
     const g = cv.getContext("2d");
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, w, h);
-    analyser.getFloatTimeDomainData(buf);
+    if (analyser) analyser.getFloatTimeDomainData(buf); else buf.fill(0);
     let start = 0;                       // a rising zero crossing: a steady picture
     for (let i = 1; i < buf.length / 2; i++) if (buf[i - 1] <= 0 && buf[i] > 0) { start = i; break; }
-    g.strokeStyle = cssVar("--accent"); g.lineWidth = 1.5; g.beginPath();
-    const n = 700;
-    for (let i = 0; i < n; i++) {
-      const x = i / n * w, y = h / 2 - buf[start + i] * h * 0.45;
-      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    let sq = 0;
+    for (let i = 0; i < 700; i++) sq += buf[start + i] * buf[start + i];
+    level = level * 0.85 + Math.sqrt(sq / 700) * 0.15;
+    if (vizMode === "rainbow") rainbow(g, w, h, buf, start, freq, (now || 0) / 1000);
+    else {
+      g.clearRect(0, 0, w, h);
+      g.strokeStyle = cssVar("--accent"); g.lineWidth = 1.5; g.beginPath();
+      const n = 700;
+      for (let i = 0; i < n; i++) {
+        const x = i / n * w, y = h / 2 - buf[start + i] * h * 0.45;
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.stroke();
     }
-    g.stroke();
     requestAnimationFrame(tick);
   };
-  tick();
+  requestAnimationFrame(tick);
+}
+
+function rainbow(g, w, h, buf, start, freq, sec) {
+  const t = calm ? 0 : sec;
+  const lv = Math.min(1, level * 3.2);
+  const hor = Math.round(h * 0.64), cx = w / 2;
+
+  // sky
+  const sky = g.createLinearGradient(0, 0, 0, hor);
+  sky.addColorStop(0, "#0b0120"); sky.addColorStop(0.6, "#2b0a4f"); sky.addColorStop(1, "#5a0f5e");
+  g.fillStyle = sky; g.fillRect(0, 0, w, hor);
+
+  // stars
+  for (const [sx, sy, ph, sz] of STARS) {
+    const a = 0.25 + 0.75 * Math.abs(Math.sin(t * 1.3 + ph)) * (0.5 + lv * 0.5);
+    g.fillStyle = `rgba(255,240,255,${a.toFixed(3)})`;
+    g.fillRect(sx * w, sy * hor, sz, sz);
+  }
+
+  // the sun: grows and glows with the volume, stripes drift down through it
+  const r = h * 0.3 * (1 + lv * 0.22), cy = hor;
+  g.save();
+  g.beginPath(); g.rect(0, 0, w, hor); g.clip();
+  g.shadowColor = "#ff3cac"; g.shadowBlur = 18 + lv * 45;
+  const sg = g.createLinearGradient(0, cy - r, 0, cy);
+  sg.addColorStop(0, "#fff36b"); sg.addColorStop(0.45, "#ff9a5a"); sg.addColorStop(1, "#ff3cac");
+  g.fillStyle = sg; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+  g.shadowBlur = 0;
+  g.fillStyle = sky;
+  const gap = r * 0.16;
+  for (let k = 0; k < 7; k++) {
+    const off = (k * gap + (t * 9) % gap);
+    const y = cy - r * 0.55 + off;
+    if (y > cy) break;
+    g.fillRect(cx - r - 2, y, 2 * r + 4, 0.6 + (off / (r * 0.55)) * 3.2);
+  }
+  g.restore();
+
+  // spectrum bars rising from the horizon, in rainbow
+  if (analyser) {
+    analyser.getByteFrequencyData(freq);
+    const N = 56, bw = w / N;
+    g.globalCompositeOperation = "lighter";
+    for (let b = 0; b < N; b++) {
+      const i0 = Math.floor(2 * Math.pow(400 / 2, b / N)), i1 = Math.max(i0 + 1, Math.floor(2 * Math.pow(400 / 2, (b + 1) / N)));
+      let v = 0; for (let i = i0; i < i1; i++) v = Math.max(v, freq[i]);
+      const bh = Math.pow(v / 255, 1.6) * hor * 0.85;
+      if (bh < 1) continue;
+      g.fillStyle = `hsla(${(b / N * 300 + t * 40) % 360},100%,60%,0.28)`;
+      g.fillRect(b * bw + 1, hor - bh, bw - 2, bh);
+    }
+    g.globalCompositeOperation = "source-over";
+  }
+
+  // the floor: a neon grid scrolling toward you
+  const fl = g.createLinearGradient(0, hor, 0, h);
+  fl.addColorStop(0, "#1c0633"); fl.addColorStop(1, "#06010f");
+  g.fillStyle = fl; g.fillRect(0, hor, w, h - hor);
+  g.save();
+  g.beginPath(); g.rect(0, hor, w, h - hor); g.clip();
+  g.lineWidth = 1;
+  const scroll = (t * 0.9) % 1;
+  for (let k = 0; k < 9; k++) {
+    const p = (k + scroll) / 9, y = hor + (h - hor) * p * p;
+    g.strokeStyle = `rgba(255,70,220,${(0.15 + p * 0.7).toFixed(3)})`;
+    g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+  }
+  g.strokeStyle = "rgba(120,200,255,0.45)";
+  for (let k = -14; k <= 14; k++) {
+    g.beginPath(); g.moveTo(cx + k * w * 0.02, hor); g.lineTo(cx + k * w * 0.16, h); g.stroke();
+  }
+  g.restore();
+  g.fillStyle = `rgba(255,120,230,${(0.55 + lv * 0.45).toFixed(3)})`;
+  g.fillRect(0, hor - 1, w, 2);
+
+  // the wave: a slow breath on top of the sound, so it is never quite still
+  const n = 360, step = 700 / n, mid = hor * 0.54, amp = h * 0.3;
+  const ys = new Float32Array(n + 1);
+  for (let i = 0; i <= n; i++) {
+    const s = buf[start + Math.floor(i * step)] || 0;
+    ys[i] = mid - (s + 0.025 * Math.sin(i / n * 12.566 + t * 2.2)) * amp;
+  }
+  trail.unshift(ys); if (trail.length > 6) trail.length = 6;
+
+  const grad = g.createLinearGradient(0, 0, w, 0);
+  for (let k = 0; k <= 6; k++) grad.addColorStop(k / 6, `hsl(${(k * 60 + t * 90) % 360},100%,62%)`);
+  const path = (pts, yOff = 0, sy = 1) => {
+    g.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const x = i / n * w, y = (pts[i] - mid) * sy + mid + yOff;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+  };
+  g.globalCompositeOperation = "lighter";
+  g.strokeStyle = grad; g.lineJoin = "round"; g.lineCap = "round";
+  // trails
+  for (let k = trail.length - 1; k >= 1; k--) {
+    g.globalAlpha = 0.16 * (1 - k / trail.length); g.lineWidth = 2;
+    path(trail[k], k * 1.5); g.stroke();
+  }
+  // reflection on the floor
+  g.save(); g.beginPath(); g.rect(0, hor, w, h - hor); g.clip();
+  g.globalAlpha = 0.22; g.lineWidth = 3;
+  path(ys, (hor - mid) * 2 - 6, -0.45); g.stroke();
+  g.restore();
+  // glow, then core
+  for (const [lw, a] of [[14, 0.08 + lv * 0.1], [6, 0.3], [2.2, 1]]) {
+    g.globalAlpha = a; g.lineWidth = lw; path(ys); g.stroke();
+  }
+  g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
 }
 
 // ======================================================================
@@ -1097,4 +1253,5 @@ document.querySelectorAll("[data-try]").forEach(b => b.addEventListener("click",
 }));
 buildAlgGrid(); buildRecipes(); buildKeys();
 set(epiano());
+setViz(vizMode); drawScope();
 </script>
