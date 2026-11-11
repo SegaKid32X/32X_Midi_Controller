@@ -24,6 +24,15 @@ void gfx_text(int x, int y, const char *s, uint8_t c);      /* pixel position */
 int  gfx_text_n(int x, int y, const char *s, int max, uint8_t c);
 void gfx_num(int x, int y, int v, uint8_t c);
 void gfx_present(void);
+void gfx_pixel(int x, int y, uint8_t c);
+void gfx_vspan(int x, int y0, int y1, uint8_t c);           /* a column, y0 to y1 */
+#ifndef MD_ONLY
+uint8_t *gfx_canvas(void);              /* the 320 x 224 bytes themselves */
+#endif
+/* colours first.. from BGR555 (at the next vblank: the 32X and the Mega Drive
+ * take colours only then), and the screens' own colours back */
+void gfx_palette(int first, const uint16_t *bgr, int n);
+void gfx_ui_palette(void);
 
 char *fmt_num(char *o, int v);          /* a decimal number, no terminator */
 

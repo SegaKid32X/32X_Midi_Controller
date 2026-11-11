@@ -1,0 +1,41 @@
+# rom: mdsamples
+# pad6
+# The rainbow visualizer (MENU, 4th item): quiet, one FM note, a chord on
+# three channels, a PSG note on top, all let go, then back to the library.
+run 300
+hello
+run 20
+press down 4
+run 20
+press a 4
+run 150
+press start 4
+run 20
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 10
+shot viz_menu
+press a 4
+run 60
+shot viz_idle
+hello
+run 10
+midi 90 3C 64
+run 40
+shot viz_note
+midi 91 43 64 92 48 64
+run 40
+shot viz_chord
+midi 96 54 64
+run 30
+shot viz_psg
+midi 80 3C 00 81 43 00 82 48 00 86 54 00
+run 120
+shot viz_released
+press b 4
+run 60
+shot viz_back
+telem

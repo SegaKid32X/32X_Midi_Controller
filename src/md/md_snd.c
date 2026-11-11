@@ -20,11 +20,22 @@ static inline void ym_wait(void)
 /* the voices that started a note since the screen last asked (CMD_MONITOR):
  * bits 0-5 FM 1-6, 6-8 PSG tone 1-3, 9 noise */
 uint16_t mon_voices;
+/* for the visualizer (CMD_VIZ): FM channels keyed on now, and those keyed on
+ * since it last asked (bit n: channel n + 1) */
+uint8_t viz_keyed, viz_keyev;
 
 void ym_write(int part, uint8_t reg, uint8_t val)
 {
-    if (!part && reg == 0x28 && (val & 0xF0) && (val & 3) != 3)    /* a key on */
-        mon_voices |= (uint16_t)(1u << ((val & 3) + (val & 4 ? 3 : 0)));
+    if (!part && reg == 0x28 && (val & 3) != 3) {
+        uint8_t bit = (uint8_t)(1u << ((val & 3) + (val & 4 ? 3 : 0)));
+        if (val & 0xF0) {                                           /* a key on */
+            mon_voices |= bit;
+            viz_keyed |= bit;
+            viz_keyev |= bit;
+        } else {
+            viz_keyed &= (uint8_t)~bit;
+        }
+    }
     ym_wait();
     if (part) {
         YM_A1 = reg;

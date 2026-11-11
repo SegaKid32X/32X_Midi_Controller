@@ -66,6 +66,8 @@ void psg_write(uint8_t b);
 void snd_silence(void);
 void act_bump(void);            /* tell the screen the sound changed */
 void flags_publish(void);       /* md_flags -> C_FLAGS */
+extern uint8_t viz_keyed, viz_keyev;   /* (CMD_VIZ) */
+uint16_t md_vblanks(void);             /* frames so far (md_main.c) */
 extern uint16_t mon_voices;     /* voices that started a note (CMD_MONITOR) */
 
 /* md_midi.c: the MIDI engine (with our Teensy firmware) */

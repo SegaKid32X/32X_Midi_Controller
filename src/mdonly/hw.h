@@ -19,6 +19,7 @@ uint16_t hw_flags(void);
 uint16_t hw_activity(void);
 
 /* the patch list itself (src/md/md_files.c): no second copy of the names */
+uint16_t md_vblanks(void);
 const char *file_name(int i);
 int file_is_dir(int i);
 

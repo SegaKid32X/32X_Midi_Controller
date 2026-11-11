@@ -99,6 +99,13 @@
                              * instrument from BUF_DATA (patch.h, psg_pack; 0: none) */
 #define CMD_PSG_GET     21  /* P1 = PSG channel: its instrument into BUF_DATA -> the
                              * length (0: none) */
+#define CMD_VIZ         22  /* for the visualizer: P1 = the FM channels keyed on now
+                             * (bits 0-5) | those keyed on since the last ask << 8,
+                             * P2 = the PSG volumes (4 bits each, tone 1 in bits
+                             * 0-3 ... noise in 12-15; 15 = silent), P3 = the
+                             * frames so far (the vertical interrupts the 68000
+                             * has counted). The pitches: CMD_SHADOW.
+                             * P1 = 1: only P3, the frames; nothing cleared. */
 #define CMD_CRASH       31  /* (written by a crashing SH-2, see crt0.s) */
 
 #define BUF_NAME        0       /* 320 bytes: a path inside MIDI_PATCHES */

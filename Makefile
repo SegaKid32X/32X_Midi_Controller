@@ -104,7 +104,7 @@ MDROM     := rom/midimd.bin
 MDTESTROM := rom/midimd-test.bin
 MDO_SRC   := src/md/md_main.c src/md/md_rx.c src/md/md_snd.c src/md/md_midi.c \
              src/md/md_files.c src/md/md_ed.c src/md/md_vfs.c \
-             src/32x/ui.c src/32x/guide.c src/32x/lib.c src/32x/libc_min.c src/common/patch.c \
+             src/32x/ui.c src/32x/viz.c src/32x/guide.c src/32x/lib.c src/32x/libc_min.c src/common/patch.c \
              src/mdonly/hw_md.c src/mdonly/gfx_md.c src/mdonly/synth_stub.c
 MDO_OBJS  := $(OBJ)/mdonly/crt.o $(patsubst %.c,$(OBJ)/mdonly/%.o,$(notdir $(MDO_SRC)))
 MDOFLAGS   = $(MDCFLAGS) -DMD_ONLY -Isrc/mdonly -Isrc/md -Isrc/32x \

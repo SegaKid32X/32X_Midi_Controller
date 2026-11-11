@@ -188,6 +188,37 @@ static void plot(int x, int y, uint8_t c)
     *p = (*p & ~(15u << s)) | (uint32_t)(c & 15) << s;
 }
 
+void gfx_pixel(int x, int y, uint8_t c) { plot(x, y, c); }
+
+/* a column of one colour: down the tile rows by pointer, a tile at a time */
+void gfx_vspan(int x, int y0, int y1, uint8_t c)
+{
+    if ((unsigned)x >= SCREEN_W) return;
+    if (y0 < 0) y0 = 0;
+    if (y1 >= SCREEN_H) y1 = SCREEN_H - 1;
+    if (y0 > y1) return;
+    int s = 28 - ((x & 7) << 2);
+    uint32_t m = 15u << s, v = fill_of(c) & m;
+    int t = (y0 >> 3) * TW + (x >> 3), r = y0 & 7;
+    uint32_t *p = tile(t) + r;
+    for (int n = y1 - y0 + 1;;) {
+        *p = (*p & ~m) | v;
+        if (!--n) break;
+        if (++r == 8) { r = 0; t += TW; p = tile(t); }
+        else p++;
+    }
+}
+
+void gfx_palette(int first, const uint16_t *bgr, int n)
+{
+    while (!(VDP_CTRL & 8))                     /* (the status: in the vblank) */
+        if (poll_hook) poll_hook();
+    VDP_CTRL32 = 0xC0000000u | (uint32_t)(first * 2) << 16;
+    for (int i = 0; i < n; i++) VDP_DATA = md_colour(bgr[i]);
+}
+
+void gfx_ui_palette(void) { gfx_palette(0, palette, COL_COUNT); }
+
 void gfx_line(int x0, int y0, int x1, int y1, uint8_t c)
 {
     int dx = x1 > x0 ? x1 - x0 : x0 - x1, sx = x0 < x1 ? 1 : -1;

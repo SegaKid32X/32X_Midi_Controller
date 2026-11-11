@@ -65,6 +65,28 @@ static inline void plot(int x, int y, uint8_t c)
         canvas[y * SCREEN_W + x] = c;
 }
 
+void gfx_pixel(int x, int y, uint8_t c) { plot(x, y, c); }
+
+void gfx_vspan(int x, int y0, int y1, uint8_t c)
+{
+    if ((unsigned)x >= SCREEN_W) return;
+    if (y0 < 0) y0 = 0;
+    if (y1 >= SCREEN_H) y1 = SCREEN_H - 1;
+    for (uint8_t *p = canvas + y0 * SCREEN_W + x; y0 <= y1; y0++, p += SCREEN_W) *p = c;
+}
+
+uint8_t *gfx_canvas(void) { return canvas; }
+
+void gfx_palette(int first, const uint16_t *bgr, int n)
+{
+    while (!hw_in_vblank())
+        if (poll_hook) poll_hook();
+    for (int i = 0; i < n; i++)
+        MARS_CRAM[first + i] = bgr[i];
+}
+
+void gfx_ui_palette(void) { gfx_palette(0, palette, COL_COUNT); }
+
 void gfx_line(int x0, int y0, int x1, int y1, uint8_t c)
 {
     int dx = x1 > x0 ? x1 - x0 : x0 - x1, sx = x0 < x1 ? 1 : -1;

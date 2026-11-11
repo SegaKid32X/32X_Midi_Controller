@@ -200,6 +200,15 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
             return ERR_RANGE;
         }
         return 0;
+    case CMD_VIZ: {
+        const uint8_t *v = shadow + SH_PSG + 8;
+        if (p1 == 1) { COMM16(C_P3) = md_vblanks(); return 0; }     /* (only the frames) */
+        COMM16(C_P1) = (uint16_t)(viz_keyed | viz_keyev << 8);
+        COMM16(C_P2) = (uint16_t)((v[0] & 15) | (v[1] & 15) << 4 | (v[2] & 15) << 8 | (v[3] & 15) << 12);
+        COMM16(C_P3) = md_vblanks();
+        viz_keyev = 0;
+        return 0;
+    }
     case CMD_PSG_SET:
         if (p2 > BUF_SIZE - BUF_DATA) return ERR_RANGE;
         return midi_psg_set(p1, file_buf + BUF_DATA, p2) ? ERR_RANGE : 0;

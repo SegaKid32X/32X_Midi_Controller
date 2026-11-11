@@ -63,6 +63,12 @@ SECTIONS
     KEEP (*(SORT(.dtors.*))) KEEP (*(.dtors))
     LONG(0) __DTOR_END__ = .;
 
+    /* tables read now and then, not every frame (the visualizer's pictures):
+     * SDRAM is full */
+    . = ALIGN(16);
+    *(.romdata) *(.romdata.*)
+    *viz.o(.text .text.* .rodata .rodata.*)     /* (the visualizer runs from the cartridge) */
+
     /* nothing big lives in ROM: the movies are files (or the VFS appended
      * after the ROM image by tools/mkvfs.py) */
     . = ALIGN(16);

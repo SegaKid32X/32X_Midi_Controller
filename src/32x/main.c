@@ -17,8 +17,10 @@ int main(void)
     poll_hook = synth_poll;
     ui_start();
     for (;;) {
-        while (hw_in_vblank()) synth_poll();        /* (the vblank's start: a frame) */
-        while (!hw_in_vblank()) synth_poll();
+        if (!ui_continuous) {                       /* (the visualizer flips, so waits, itself) */
+            while (hw_in_vblank()) synth_poll();    /* (the vblank's start: a frame) */
+            while (!hw_in_vblank()) synth_poll();
+        }
         ui_frame();
     }
     return 0;

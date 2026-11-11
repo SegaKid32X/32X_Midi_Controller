@@ -18,9 +18,10 @@
 #include "ui.h"
 #include "guide.h"
 #include "synth.h"
+#include "viz.h"
 
 enum { SCR_LIBRARY, SCR_EDITOR, SCR_PSGED };
-enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS, OV_MONITOR, OV_PSGMENU };
+enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS, OV_MONITOR, OV_PSGMENU, OV_VIZ };
 
 #define ALL_CH      6
 #define PWM_T       7           /* 7-10: the 32X's FM channels (MIDI 11-14) */
@@ -36,7 +37,11 @@ static const uint8_t target_order[] = { 0, 1, 2, 3, 4, 5, 6, 12, 13, 14, 15, 7, 
 #define APP_TITLE   "32X MIDI CONTROLLER"
 #endif
 #define NTARGET     ((int)sizeof target_order)
+#ifdef MD_ONLY
+#define NSLOT       6           /* voices with a patch: YM 1-6 */
+#else
 #define NSLOT       10          /* voices with a patch: YM 1-6, 32X 11-14 */
+#endif
 #define LIST_ROWS   19
 #define LIST_Y      22
 
@@ -66,6 +71,7 @@ static void settings_input(uint16_t p);
 static char message[60];
 static int message_timer;
 static int dirty = 1;
+int ui_continuous;
 static uint16_t last_act;
 static int act_timer;
 
@@ -166,7 +172,10 @@ static const char *const ch_names[16] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5"
                                                 "32X 11", "32X 12", "32X 13", "32X 14", "DRUMS",
                                                 "PSG 1", "PSG 2", "PSG 3", "NOISE" };
 static const char *const slot_names[NSLOT] = { "CH 1", "CH 2", "CH 3", "CH 4", "CH 5", "CH 6",
-                                              "32X 11", "32X 12", "32X 13", "32X 14" };
+#ifndef MD_ONLY
+                                              "32X 11", "32X 12", "32X 13", "32X 14"
+#endif
+};
 static int drum_pick;                   /* X on DRUMS: the sample it plays next */
 
 /* ---- the MIDI lights: one per MIDI channel, at the top of every screen.
@@ -1286,6 +1295,9 @@ static void overlay_input(uint16_t p)
     case OV_MONITOR:
         if (p & (PAD_B | PAD_START | PAD_Y)) { overlay = OV_NONE; dirty = 1; }
         break;
+    case OV_VIZ:
+        if (p & (PAD_B | PAD_START | PAD_Y)) { viz_close(); overlay = OV_NONE; dirty = 1; }
+        break;
     case OV_DELETE:
         if (p & PAD_A) {
             char name[PATH_MAX_ + NAME_MAX + 2];
@@ -1318,20 +1330,21 @@ static void overlay_input(uint16_t p)
 
 /* ------------------------------------------------------------ menu, settings */
 
-#define NMENU 4
+#define NMENU 5
 static const char *const menu_items[NMENU] = { "THE GUIDE: HOW IT ALL WORKS", "SETTINGS",
-                                               "MIDI MONITOR: WHAT COMES IN", "LOOK FOR PATCHES AGAIN" };
+                                               "MIDI MONITOR: WHAT COMES IN", "RAINBOW VISUALIZER",
+                                               "LOOK FOR PATCHES AGAIN" };
 
 static void draw_menu(void)
 {
-    panel(60, 70, 200, 73);
+    panel(60, 70, 200, 84);
     gfx_text(70, 77, "MENU", COL_HI);
     for (int i = 0; i < NMENU; i++) {
         int y = 91 + i * 11;
         if (i == menu_choice) gfx_rect(66, y - 2, 188, 11, COL_CURSOR);
         gfx_text(70, y, menu_items[i], i == menu_choice ? COL_HI : COL_TEXT);
     }
-    gfx_text(70, 135, "A: CHOOSE   B: BACK", COL_DIM);
+    gfx_text(70, 146, "A: CHOOSE   B: BACK", COL_DIM);
 }
 
 /* ---- the MIDI monitor (from the menu): every channel, what it plays, the
@@ -1568,6 +1581,7 @@ static void menu_input(uint16_t p)
         if (menu_choice == 0) { guide_open(); overlay = OV_GUIDE; }
         else if (menu_choice == 1) { settings_fetch(); set_row = 0; overlay = OV_SETTINGS; }
         else if (menu_choice == 2) { settings_fetch(); monitor_fetch(); mon_timer = 0; overlay = OV_MONITOR; }
+        else if (menu_choice == 3) { settings_fetch(); viz_open(); overlay = OV_VIZ; }
         else ui_rescan();
         dirty = 1;
     } else if (p & PAD_B) {
@@ -1618,7 +1632,7 @@ static void settings_input(uint16_t p)
 /* X on the home screen: middle C while it is held, on the target's channel */
 static void preview(void)
 {
-    if ((screen != SCR_LIBRARY && screen != SCR_PSGED) || overlay != OV_NONE) return;
+    if (overlay != OV_VIZ && ((screen != SCR_LIBRARY && screen != SCR_PSGED) || overlay != OV_NONE)) return;
     int down = (held_now & PAD_X) != 0;
     if (down && preview_note < 0) {
         int mch = settings[SET_MODE] ? settings[SET_POLY_CH] : (target == ALL_CH ? 0 : target);
@@ -1646,6 +1660,12 @@ static void preview(void)
 void ui_draw(void)
 {
     part_dirty = 0;
+    if (overlay == OV_VIZ) {
+        viz_draw();
+        gfx_present();
+        dirty = 0;
+        return;
+    }
     if (overlay == OV_GUIDE || overlay == OV_MONITOR) {
         if (overlay == OV_GUIDE) guide_draw();
         else draw_monitor();
@@ -1724,6 +1744,13 @@ void ui_frame(void)
         load_timer = -1;
         if (lib_count) load_cursor();
         part_dirty |= PART_PANEL;
+    }
+    ui_continuous = overlay == OV_VIZ;
+    if (overlay == OV_VIZ) {                    /* (it draws itself, every frame) */
+        if (dirty) ui_draw();
+        part_dirty = 0;
+        viz_frame(frame_el);
+        return;
     }
     /* the GenMDM changed something: show it (at most every few frames) */
     uint16_t act = hw_activity();
