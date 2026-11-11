@@ -562,7 +562,8 @@ enum { VC_SKY, VC_WHITE, VC_RB, VC_SUN = VC_RB + NRB, VC_MAG = VC_SUN + NSUN, VC
 #define WAVE_BOT    (VIZ_HOR - 4)
 #define REFL_Y      186
 
-static uint8_t oy[W + 1];               /* the wave as drawn */
+#define NCOL (W / 2)                    /* (columns two pixels wide: half the drawing) */
+static uint8_t oy[NCOL + 1];            /* the wave as drawn */
 
 static int sun_col(int dy) { return VC_SUN + (VIZ_SUN_R - dy) * NSUN / (VIZ_SUN_R + 1); }
 
@@ -583,17 +584,22 @@ static uint8_t bg_at(int x, int y)
     return VC_SKY;
 }
 
-/* the picture under column x, rows ya to yb (all above the horizon) */
+/* the picture under columns x and x + 1 (x even), rows ya to yb (all above the horizon) */
 static void bg_span(int x, int ya, int yb)
 {
-    int sun = viz_sun_top[x];
+    int sun = viz_sun_top[x] < viz_sun_top[x + 1] ? viz_sun_top[x] : viz_sun_top[x + 1];
     int sky_end = yb < sun ? yb : sun - 1;
     if (ya <= sky_end) {
-        gfx_vspan(x, ya, sky_end, VC_SKY);
-        int s = viz_star[x];
-        if (s >= ya && s <= sky_end) gfx_pixel(x, s, VC_WHITE);
+        gfx_vspan2(x, ya, sky_end, VC_SKY);
+        for (int i = 0; i < 2; i++) {
+            int s = viz_star[x + i];
+            if (s >= ya && s <= sky_end) gfx_pixel(x + i, s, VC_WHITE);
+        }
     }
-    for (int y = ya > sun ? ya : sun; y <= yb; y++) gfx_pixel(x, y, bg_at(x, y));
+    for (int y = ya > sun ? ya : sun; y <= yb; y++) {
+        gfx_pixel(x, y, bg_at(x, y));
+        gfx_pixel(x + 1, y, bg_at(x + 1, y));
+    }
 }
 
 void viz_draw(void)
@@ -627,38 +633,36 @@ static int refl(int y) { return REFL_Y + ((WAVE_Y - y) >> 2); }
 static void draw_wave(const uint8_t *ny)
 {
     int band = 0, acc = 0;
-    for (int x = 0; x < W; x++) {
+    for (int cx = 0; cx < NCOL; cx++) {
+        int x = cx * 2;
         uint8_t c = (uint8_t)(VC_RB + band);
-        if ((acc += NRB) >= W / 2) {            /* (two rainbows across the screen) */
+        if ((acc += NRB * 2) >= W / 2) {        /* (two rainbows across the screen) */
             acc -= W / 2;
             if (++band == NRB) band = 0;
         }
-        int p = x ? x - 1 : 0;
-        int na = ny[x] < ny[p] ? ny[x] : ny[p], nb = (ny[x] ^ ny[p] ^ na) + 1;
+        int na = ny[cx] < ny[cx + 1] ? ny[cx] : ny[cx + 1], nb = (ny[cx] ^ ny[cx + 1] ^ na) + 1;
         if (drawn) {
-            int oa = oy[x] < oy[p] ? oy[x] : oy[p], ob = (oy[x] ^ oy[p] ^ oa) + 1;
+            int oa = oy[cx] < oy[cx + 1] ? oy[cx] : oy[cx + 1], ob = (oy[cx] ^ oy[cx + 1] ^ oa) + 1;
             if (oa != na || ob != nb) {
                 if (nb < oa || na > ob) {               /* apart: all of each */
                     bg_span(x, oa, ob);
-                    gfx_vspan(x, na, nb, c);
+                    gfx_vspan2(x, na, nb, c);
                 } else {
                     if (oa < na) bg_span(x, oa, na - 1);
                     if (ob > nb) bg_span(x, nb + 1, ob);
-                    if (na < oa) gfx_vspan(x, na, oa - 1, c);
-                    if (nb > ob) gfx_vspan(x, ob + 1, nb, c);
+                    if (na < oa) gfx_vspan2(x, na, oa - 1, c);
+                    if (nb > ob) gfx_vspan2(x, ob + 1, nb, c);
                 }
             }
         } else {
-            gfx_vspan(x, na, nb, c);
+            gfx_vspan2(x, na, nb, c);
         }
-        if (!(x & 1)) {                         /* the reflection, dotted like water */
-            int r = refl(ny[x]), o = refl(oy[x]);
-            if (!drawn || o != r) {
-                if (drawn) gfx_pixel(x, o, bg_at(x, o));
-                gfx_pixel(x, r, c);
-            }
+        int r = refl(ny[cx]), o = refl(oy[cx]);     /* the reflection, dotted like water */
+        if (!drawn || o != r) {
+            if (drawn) gfx_pixel(x, o, bg_at(x, o));
+            gfx_pixel(x, r, c);
         }
-        if ((x & 15) == 15 && poll_hook) poll_hook();
+        if ((cx & 7) == 7 && poll_hook) poll_hook();
     }
     memcpy(oy, ny, sizeof oy);
     drawn = 1;
@@ -691,17 +695,18 @@ void viz_frame(int el)
 {
     el = frame_start();
     voice_t v[10];
-    int n = voices(v, el, W, 2, 12, 46, 58);
-    int16_t w[W / 2 + 1];
-    wave(v, n, w, W / 2 + 1, 2);                /* (every other column; the rest between) */
-    uint8_t ny[W + 1];
-    for (int x = 0; x <= W; x++) {
-        int s = x & 1 ? (w[x >> 1] + w[(x >> 1) + 1]) >> 1 : w[x >> 1];
-        int y = WAVE_Y - s;
-        ny[x] = (uint8_t)(y < WAVE_TOP ? WAVE_TOP : y > WAVE_BOT ? WAVE_BOT : y);
+    int n = voices(v, el, W, 2, 10, 40, 52);
+    int16_t w[NCOL + 1];
+    wave(v, n, w, NCOL + 1, 2);                 /* (a point every other pixel) */
+    uint8_t ny[NCOL + 1];
+    for (int i = 0; i <= NCOL; i++) {
+        int y = WAVE_Y - w[i];
+        ny[i] = (uint8_t)(y < WAVE_TOP ? WAVE_TOP : y > WAVE_BOT ? WAVE_BOT : y);
     }
     draw_wave(ny);
+    gfx_no_hash = 1;                            /* (what the wave touched has changed) */
     gfx_present();
+    gfx_no_hash = 0;
     colours();
 }
 

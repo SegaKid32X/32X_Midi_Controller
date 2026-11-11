@@ -26,6 +26,10 @@ void gfx_num(int x, int y, int v, uint8_t c);
 void gfx_present(void);
 void gfx_pixel(int x, int y, uint8_t c);
 void gfx_vspan(int x, int y0, int y1, uint8_t c);           /* a column, y0 to y1 */
+#ifdef MD_ONLY
+void gfx_vspan2(int x, int y0, int y1, uint8_t c);          /* two columns, x even */
+extern int gfx_no_hash;                 /* 1: gfx_present() sends drawn tiles without comparing */
+#endif
 #ifndef MD_ONLY
 uint8_t *gfx_canvas(void);              /* the 320 x 224 bytes themselves */
 #endif

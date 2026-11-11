@@ -190,15 +190,16 @@ static void plot(int x, int y, uint8_t c)
 
 void gfx_pixel(int x, int y, uint8_t c) { plot(x, y, c); }
 
+int gfx_no_hash;                        /* 1: gfx_present() sends drawn tiles without comparing */
+
 /* a column of one colour: down the tile rows by pointer, a tile at a time */
-void gfx_vspan(int x, int y0, int y1, uint8_t c)
+static void vspan_m(int x, int y0, int y1, uint32_t m, uint8_t c)
 {
     if ((unsigned)x >= SCREEN_W) return;
     if (y0 < 0) y0 = 0;
     if (y1 >= SCREEN_H) y1 = SCREEN_H - 1;
     if (y0 > y1) return;
-    int s = 28 - ((x & 7) << 2);
-    uint32_t m = 15u << s, v = fill_of(c) & m;
+    uint32_t v = fill_of(c) & m;
     int t = (y0 >> 3) * TW + (x >> 3), r = y0 & 7;
     uint32_t *p = tile(t) + r;
     for (int n = y1 - y0 + 1;;) {
@@ -208,6 +209,10 @@ void gfx_vspan(int x, int y0, int y1, uint8_t c)
         else p++;
     }
 }
+
+void gfx_vspan(int x, int y0, int y1, uint8_t c) { vspan_m(x, y0, y1, 15u << (28 - ((x & 7) << 2)), c); }
+/* two columns, x even */
+void gfx_vspan2(int x, int y0, int y1, uint8_t c) { vspan_m(x, y0, y1, 0xFFu << (24 - ((x & 6) << 2)), c); }
 
 void gfx_palette(int first, const uint16_t *bgr, int n)
 {
@@ -316,9 +321,13 @@ void gfx_present(void)
         if ((t & 15) == 15 && poll_hook) poll_hook();
         unsigned s = solid[t];
         if (s == CLEAN && !first) continue;     /* (untouched since it went up) */
-        uint32_t h = s >= CLEAN ? hash_tile(canvas + t * 8) : sh[s];
+        uint32_t h;
+        if (s == DRAWN && gfx_no_hash) h = 0x9E3779B9u;  /* (sent anyway; the next compare sends it again) */
+        else {
+            h = s >= CLEAN ? hash_tile(canvas + t * 8) : sh[s];
+            if (!first && h == hash[t]) { if (s == DRAWN) solid[t] = CLEAN; continue; }
+        }
         if (s == DRAWN) solid[t] = CLEAN;
-        if (!first && h == hash[t]) continue;
         hash[t] = h;
         if (t != next) vram_write_at((unsigned)t * 32);
         if (s >= CLEAN) {
