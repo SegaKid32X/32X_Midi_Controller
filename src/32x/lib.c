@@ -6,7 +6,9 @@
 int lib_count, lib_skipped;
 int lib_songs;                          /* 1: lib_scan lists MIDI_SONGS (the tracker) */
 char lib_path[PATH_MAX_];
+#ifndef MD_ONLY
 uint8_t shadow_copy[528];
+#endif
 
 #ifdef MD_ONLY
 /* (no 32X: the names are the 68000's own list, src/md/md_files.c) */

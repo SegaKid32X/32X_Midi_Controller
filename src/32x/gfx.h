@@ -29,6 +29,10 @@ void gfx_vspan(int x, int y0, int y1, uint8_t c);           /* a column, y0 to y
 #ifdef MD_ONLY
 void gfx_vspan2(int x, int y0, int y1, uint8_t c);          /* two columns, x even */
 extern int gfx_no_hash;                 /* 1: gfx_present() sends drawn tiles without comparing */
+void gfx_mode(int hires);               /* 1: 256 x 448 interlaced (text twice as tall), 0: 320 x 224 */
+extern int gfx_hires;
+void gfx_lines(int y0, int y1, const uint32_t *(*fn)(int y));     /* (256 x 448: a line of 32 words) */
+int  gfx_textb(int x, int y, const char *s, int max, uint8_t fg, uint8_t bg);  /* on a plain bg (fast) */
 #endif
 #ifndef MD_ONLY
 uint8_t *gfx_canvas(void);              /* the 320 x 224 bytes themselves */

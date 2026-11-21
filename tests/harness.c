@@ -128,6 +128,7 @@ static void  (*retro_set_audio_sample_batch)(audio_batch_t);
 static void  (*retro_set_input_poll)(poll_t);
 static void  (*retro_set_input_state)(input_t);
 static bool  (*retro_load_game)(const struct retro_game_info *);
+static void  (*retro_set_controller_port_device)(unsigned, unsigned);
 static void  (*retro_run)(void);
 static void  (*retro_unload_game)(void);
 static void  (*retro_get_system_av_info)(struct retro_system_av_info *);
@@ -176,6 +177,23 @@ static bool cb_env(unsigned cmd, void *data)
             v->value = "6 button pad";
             return true;
         }
+        {   /* HARNESS_OPTS="key=value,key=value": other cores' options */
+            static char opts[512];
+            const char *o = getenv("HARNESS_OPTS");
+            if (o) {
+                strncpy(opts, o, sizeof opts - 1);
+                for (char *k = strtok(opts, ","); k; k = strtok(0, ",")) {
+                    char *eq = strchr(k, '=');
+                    if (eq && (size_t)(eq - k) == strlen(v->key) && !strncmp(k, v->key, (size_t)(eq - k))) {
+                        static char val[128];
+                        strncpy(val, eq + 1, sizeof val - 1);
+                        v->value = val;
+                        return true;
+                    }
+                }
+            }
+        }
+        v->value = 0;                   /* (no answer: some cores read it anyway) */
         return false;
     }
     case ENV_GET_VARIABLE_UPDATE:
@@ -317,6 +335,7 @@ int main(int argc, char **argv)
     retro_set_input_poll = load_sym(h, "retro_set_input_poll");
     retro_set_input_state = load_sym(h, "retro_set_input_state");
     retro_load_game     = load_sym(h, "retro_load_game");
+    retro_set_controller_port_device = (void (*)(unsigned, unsigned))dlsym(h, "retro_set_controller_port_device");
     retro_run           = load_sym(h, "retro_run");
     retro_unload_game   = load_sym(h, "retro_unload_game");
     retro_get_system_av_info = load_sym(h, "retro_get_system_av_info");
@@ -352,6 +371,8 @@ int main(int argc, char **argv)
                                                  rom, (size_t)sz, false, false };
     }
     if (!retro_load_game(&gi)) { fprintf(stderr, "core rejected ROM\n"); return 2; }
+    if (getenv("HARNESS_PAD6_DEV") && retro_set_controller_port_device)    /* (a core's 6-button device) */
+        retro_set_controller_port_device(0, (unsigned)strtoul(getenv("HARNESS_PAD6_DEV"), 0, 0));
     struct retro_system_av_info av; retro_get_system_av_info(&av);
     const char *sram_file = getenv("SRAM_FILE");
     if (sram_file) {

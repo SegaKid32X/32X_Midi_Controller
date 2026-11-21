@@ -171,9 +171,12 @@ port 2 wires (the Teensy listens between the MIDI it sends), so it needs our
 firmware; GenMDM's own ignores them.
 
 **On the Genesis alone** the song works the same (32X tracks are silent
-there but still go out as MIDI); the screens draw more slowly, so while it
-plays the playhead shows on the ruler only, and the piano roll redraws just
-the rows the cursor moves over.
+there but still go out as MIDI), and its screens use 256 x 448 interlaced
+(H32, interlace mode 2, drawn straight into video memory): the arrange view
+shows each track's notes in small (pitch and length, like regions in a DAW)
+and the piano roll about 6 octaves at once. While it plays, the playhead
+shows on the ruler only. (PicoDrive does not show interlace mode 2; Genesis
+Plus GX does.)
 
 ## Our Teensy firmware (optional)
 

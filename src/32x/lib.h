@@ -49,6 +49,11 @@ void voice_apply(int ch, const fm_patch *p);          /* ch 0-5 */
 void voice_read(int ch, fm_patch *p);                 /* what channel ch plays now */
 uint8_t shadow_byte(int index);
 void shadow_refresh(void);                            /* fetch the whole shadow */
+#ifdef MD_ONLY                          /* (the 68000's own: the same RAM) */
+extern uint8_t shadow[528];
+#define shadow_copy shadow
+#else
 extern uint8_t shadow_copy[528];
+#endif
 
 #endif

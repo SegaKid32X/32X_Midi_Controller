@@ -110,6 +110,212 @@ static void vram_write_at(unsigned addr)
     VDP_CTRL32 = 0x40000000u | (uint32_t)(addr & 0x3FFF) << 16 | (addr >> 14);
 }
 
+
+/* ---- 256 x 448, interlaced (the song's screens): H32, interlace mode 2,
+ * patterns of 8 x 16. Its 896 patterns (56 KB) fill the VRAM and would not
+ * fit in work RAM, so here the drawing goes straight into the VRAM, read
+ * and written back through the VDP's port: pattern (row r of the screen's
+ * 16-line cells, column c) = r * 32 + c, at 64 bytes each. */
+int gfx_hires;
+static int show_next;                   /* (a new mode: the display back on once it is drawn) */
+#define HW      256
+#define HH      448
+#define HTW     32
+
+static void vram_read_at(unsigned addr)
+{
+    VDP_CTRL32 = (uint32_t)(addr & 0x3FFF) << 16 | (addr >> 14);
+}
+
+static unsigned hr_addr(int tx, int y) { return (unsigned)(((y >> 4) * HTW + tx) * 64 + (y & 15) * 4); }
+
+/* lines y0..y1 of tile column tx (inside one cell): (old & ~m) | (v & m) */
+static void hr_cell(int tx, int y0, int y1, uint32_t m, uint32_t v)
+{
+    unsigned a = hr_addr(tx, y0);
+    int n = y1 - y0 + 1;
+    if (m == 0xFFFFFFFFu) {
+        vram_write_at(a);
+        for (int i = 0; i < n; i++) VDP_DATA32 = v;
+        return;
+    }
+    uint32_t b[16];
+    vram_read_at(a);
+    for (int i = 0; i < n; i++) b[i] = VDP_DATA32;
+    vram_write_at(a);
+    for (int i = 0; i < n; i++) VDP_DATA32 = (b[i] & ~m) | (v & m);
+}
+
+static void hr_span(int tx, int y0, int y1, uint32_t m, uint32_t v)   /* down the cells */
+{
+    while (y0 <= y1) {
+        int e = (y0 | 15) < y1 ? (y0 | 15) : y1;
+        hr_cell(tx, y0, e, m, v);
+        y0 = e + 1;
+    }
+}
+
+static void hr_rect(int x, int y, int w, int h, uint8_t c)
+{
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > HW) w = HW - x;
+    if (y + h > HH) h = HH - y;
+    if (w <= 0 || h <= 0) return;
+    uint32_t v = fill_of(c);
+    int x1 = x + w;
+    for (int tx = x >> 3; tx <= (x1 - 1) >> 3; tx++) {
+        int a = tx * 8 < x ? x - tx * 8 : 0, b = tx * 8 + 8 > x1 ? x1 - tx * 8 : 8;
+        uint32_t m = 0xFFFFFFFFu >> (a * 4);
+        if (b < 8) m &= ~(0xFFFFFFFFu >> (b * 4));
+        hr_span(tx, y, y + h - 1, m, v);
+        if (poll_hook) poll_hook();
+    }
+}
+
+/* the letters at 256 x 448: 11 lines (rows 0, 2, 4, 6 of the font twice) */
+#define HGH     11
+static const uint8_t hrow[HGH] = { 0, 0, 1, 2, 2, 3, 4, 4, 5, 6, 6 };
+
+static void hr_glyph(int x, int y, const unsigned char *g, uint8_t c)
+{
+    if (x < 0 || y < 0 || x + 5 > HW || y + HGH > HH) return;
+    uint32_t v = fill_of(c);
+    int s = x & 7, tx = x >> 3;
+    for (int half = 0; half < (s > 3 ? 2 : 1); half++) {
+        const uint32_t *tab = half ? glyph_lo[s] : glyph_hi[s];
+        int yy = y;
+        while (yy < y + HGH) {                  /* (a cell at a time: read, change, write) */
+            int e = (yy | 15) < y + HGH - 1 ? (yy | 15) : y + HGH - 1;
+            unsigned a = hr_addr(tx + half, yy);
+            uint32_t b[16];
+            int n = e - yy + 1;
+            vram_read_at(a);
+            for (int i = 0; i < n; i++) b[i] = VDP_DATA32;
+            for (int i = 0; i < n; i++) {
+                uint32_t m = tab[g[hrow[yy - y + i]]];
+                b[i] = (b[i] & ~m) | (v & m);
+            }
+            vram_write_at(a);
+            for (int i = 0; i < n; i++) VDP_DATA32 = b[i];
+            yy = e + 1;
+        }
+    }
+}
+
+/* 256 x 448: text on a plain background (bg): the tile columns it covers
+ * are written whole, nothing read back (what else is in them becomes bg) */
+int gfx_textb(int x, int y, const char *s, int max, uint8_t fg, uint8_t bg)
+{
+    int n = 0;
+    while (n < max && s[n]) n++;
+    if (!gfx_hires) return gfx_text_n(x, y, s, n, fg);
+    if (n == 0 || y < 0 || y + HGH > HH) return n;
+    uint32_t f = fill_of(fg), b = fill_of(bg);
+    int t0 = x >> 3, t1 = (x + n * CHAR_W - 1) >> 3;
+    if (t0 < 0) t0 = 0;
+    if (t1 >= HTW) t1 = HTW - 1;
+    for (int tx = t0; tx <= t1; tx++) {
+        int i0 = (tx * 8 - 4 - x) / CHAR_W - 1, i1 = (tx * 8 + 8 - x) / CHAR_W + 1;   /* (the letters near it) */
+        if (i0 < 0) i0 = 0;
+        if (i1 > n) i1 = n;
+        for (int y0 = y; y0 < y + HGH; ) {
+            int e = (y0 | 15) < y + HGH - 1 ? (y0 | 15) : y + HGH - 1;
+            vram_write_at(hr_addr(tx, y0));
+            for (int yy = y0; yy <= e; yy++) {
+                uint32_t w = b;
+                for (int i = i0; i < i1; i++) {
+                    int ch = (uint8_t)s[i], px = x + i * CHAR_W;
+                    if (ch >= 'a' && ch <= 'z') ch -= 32;
+                    if (ch < 32 || ch > 95) ch = '?';
+                    unsigned bits = font5x7[ch - 32][hrow[yy - y]];
+                    if (!bits) continue;
+                    uint32_t m = (px >> 3) == tx ? glyph_hi[px & 7][bits]
+                               : (px >> 3) == tx - 1 && (px & 7) > 3 ? glyph_lo[px & 7][bits] : 0;
+                    w = (w & ~m) | (f & m);
+                }
+                VDP_DATA32 = w;
+            }
+            y0 = e + 1;
+        }
+    }
+    if (poll_hook) poll_hook();
+    return n;
+}
+
+/* 256 x 448: lines y0..y1 across the screen, each line 32 words (8 pixels
+ * each) from fn - the same pointer again for a line like the last costs
+ * nothing to make. Written along the line (the VDP steps 64 bytes, a pattern,
+ * each word: the high halves, then the low), nothing read back. */
+void gfx_lines(int y0, int y1, const uint32_t *(*fn)(int y))
+{
+    if (!gfx_hires) return;
+    if (y0 < 0) y0 = 0;
+    if (y1 >= HH) y1 = HH - 1;
+    VDP_CTRL = 0x8F40;                          /* auto-increment 64 */
+    for (int y = y0; y <= y1; y++) {
+        const uint32_t *w = fn(y);
+        unsigned a = hr_addr(0, y);
+        vram_write_at(a);
+        for (int t = 0; t < HTW; t++) VDP_DATA = (uint16_t)(w[t] >> 16);
+        vram_write_at(a + 2);
+        for (int t = 0; t < HTW; t++) VDP_DATA = (uint16_t)w[t];
+        if ((y & 7) == 7 && poll_hook) poll_hook();
+    }
+    VDP_CTRL = 0x8F02;
+}
+
+static void regs_normal(void)
+{
+    static const uint16_t regs[] = {
+        0x8004, 0x8164, 0x8230, 0x8407, 0x8578, 0x8700, 0x8B08,
+        0x8C81, 0x8D3E, 0x8F02, 0x9001, 0x9100, 0x9200,
+    };
+    for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++) VDP_CTRL = regs[i];
+}
+
+/* 1: the song's 256 x 448 screens; 0: the others (320 x 224, the canvas) */
+void gfx_mode(int hires)
+{
+    if (hires == gfx_hires) return;
+    VDP_CTRL = 0x8124;                          /* (the display off while it changes) */
+    if (hires) {
+        static const uint16_t regs[] = {
+            0x8238, 0x8407,                     /* plane A and B 0xE000 (the same) */
+            0x8574,                             /* sprites 0xE800 */
+            0x8C06,                             /* H32, interlace mode 2 */
+            0x8D3B,                             /* H scroll 0xEC00 */
+            0x8F02, 0x9000,                     /* auto-increment 2; planes 32 x 32 */
+        };
+        for (unsigned i = 0; i < sizeof regs / sizeof regs[0]; i++) VDP_CTRL = regs[i];
+        vram_write_at(0xE000);                  /* the names: cell r, c -> pattern r * 32 + c */
+        for (int r = 0; r < 32; r++)
+            for (int c = 0; c < 32; c++)
+                VDP_DATA = (uint16_t)(r < 28 ? r * HTW + c : 0);   /* (in 64-byte patterns) */
+        for (int i = 0; i < 0x1800 / 2; i++) VDP_DATA = 0;           /* sprites, H scroll, the rest */
+        VDP_CTRL32 = 0x40000010u;
+        VDP_DATA32 = 0;
+        gfx_hires = 1;
+    } else {
+        regs_normal();
+        vram_write_at(0xC000);
+        for (int r = 0; r < 32; r++)
+            for (int c = 0; c < 64; c++)
+                VDP_DATA = (uint16_t)(r < TH && c < TW ? r * TW + c : BLANK);
+        vram_write_at(0xE000);
+        for (int i = 0; i < 64 * 32; i++) VDP_DATA = BLANK;
+        vram_write_at(0xF000);                  /* sprites, H scroll */
+        for (int i = 0; i < 0x1000 / 2; i++) VDP_DATA = 0;
+        vram_write_at(BLANK * 32);
+        for (int i = 0; i < 16; i++) VDP_DATA = 0;
+        VDP_CTRL32 = 0x40000010u;
+        VDP_DATA32 = 0;
+        first = 1;                              /* (every tile again) */
+        gfx_hires = 0;
+    }
+    show_next = 1;                              /* (dark until drawn: gfx_present) */
+}
+
 void gfx_init(void)
 {
     static const uint16_t regs[] = {
@@ -135,17 +341,28 @@ void gfx_init(void)
     VDP_CTRL32 = 0x40000010u;                   /* V scroll 0 */
     VDP_DATA32 = 0;
     first = 1;
+    gfx_hires = 0;
     for (int t = 0; t < NTILES; t++) solid[t] = 0;
 }
 
 void gfx_clear(uint8_t c)
 {
+    if (gfx_hires) {
+        uint32_t v = fill_of(c);
+        vram_write_at(0);
+        for (int i = 0; i < 896 * 16; i++) {
+            VDP_DATA32 = v;
+            if ((i & 511) == 511 && poll_hook) poll_hook();
+        }
+        return;
+    }
     clear_at = md_vblanks();
     for (int t = 0; t < NTILES; t++) solid[t] = (uint8_t)(c & 15);
 }
 
 void gfx_rect(int x, int y, int w, int h, uint8_t c)
 {
+    if (gfx_hires) { hr_rect(x, y, w, h, c); return; }
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x + w > SCREEN_W) w = SCREEN_W - x;
@@ -182,6 +399,7 @@ void gfx_frame(int x, int y, int w, int h, uint8_t c)
 
 static void plot(int x, int y, uint8_t c)
 {
+    if (gfx_hires) { hr_rect(x, y, 1, 1, c); return; }
     if ((unsigned)x >= SCREEN_W || (unsigned)y >= SCREEN_H) return;
     uint32_t *p = tile((y >> 3) * TW + (x >> 3)) + (y & 7);
     int s = 28 - ((x & 7) << 2);
@@ -195,6 +413,13 @@ int gfx_no_hash;                        /* 1: gfx_present() sends drawn tiles wi
 /* a column of one colour: down the tile rows by pointer, a tile at a time */
 static void vspan_m(int x, int y0, int y1, uint32_t m, uint8_t c)
 {
+    if (gfx_hires) {
+        if ((unsigned)x >= HW) return;
+        if (y0 < 0) y0 = 0;
+        if (y1 >= HH) y1 = HH - 1;
+        if (y0 <= y1) hr_span(x >> 3, y0, y1, m, fill_of(c));
+        return;
+    }
     if ((unsigned)x >= SCREEN_W) return;
     if (y0 < 0) y0 = 0;
     if (y1 >= SCREEN_H) y1 = SCREEN_H - 1;
@@ -246,6 +471,7 @@ static void glyph(int x, int y, int ch, uint8_t c)
     if (ch == '}') ch = ']';
     if (ch < 32 || ch > 95) ch = '?';
     const unsigned char *g = font5x7[ch - 32];
+    if (gfx_hires) { hr_glyph(x, y, g, c); return; }
     if (x < 0 || y < 0 || x + 5 > SCREEN_W || y + 7 > SCREEN_H) {     /* (at an edge: by pixel) */
         for (int r = 0; r < 7; r++)
             for (int i = 0; i < 5; i++)
@@ -313,6 +539,10 @@ void gfx_num(int x, int y, int v, uint8_t c)
  * blank or not) */
 void gfx_present(void)
 {
+    if (gfx_hires) {                            /* (drawn straight into the VRAM) */
+        if (show_next) { show_next = 0; VDP_CTRL = 0x8164; }
+        return;
+    }
     uint16_t at = md_vblanks();
     uint32_t sh[16];
     for (int c = 0; c < 16; c++) sh[c] = solid_hash((unsigned)c);
@@ -342,6 +572,7 @@ void gfx_present(void)
         next = t + 1;
     }
     first = 0;
+    if (show_next) { show_next = 0; VDP_CTRL = 0x8164; }
     gfx_draw_frames = (uint16_t)(at - clear_at);
     gfx_present_frames = (uint16_t)(md_vblanks() - at);
 }

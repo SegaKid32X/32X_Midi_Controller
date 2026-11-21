@@ -69,7 +69,11 @@ static uint8_t settings[SET_COUNT + 2];
 static int preview_note = -1;           /* the note X is playing, or -1 */
 static void menu_input(uint16_t p);
 static void settings_input(uint16_t p);
-static int tk_from_lib;                 /* the library was opened from the tracker */
+static int tk_from_lib;                 /* the library was opened from the song */
+#ifndef MD_ONLY
+#define gfx_hires   0                   /* (the Genesis alone: the song at 256 x 448, gfx_md.c) */
+#define gfx_mode(h) ((void)0)
+#endif
 static void tk_enter(void);
 static void sound_of_target(void);
 static char message[60];
@@ -1698,16 +1702,48 @@ static void preview(void)
 #define FAST_SCREEN 1
 #endif
 
-#define AR_X        104                 /* the arrange view: the first column; 6 pixels a beat */
-#define AR_COLW     6
-#define AR_COLS     32
-#define AR_Y        33                  /* the first track; 10 pixels each */
-#define AR_H        10
-#define PR_X        24                  /* the piano roll: 4 pixels a 16th (24 ticks) */
-#define PR_Y        33
-#define PR_H        4                   /* a semitone */
-#define PR_N        42                  /* semitones shown */
-#define PR_W        (SCREEN_W - PR_X)
+/* The Genesis shows these screens at 256 x 448, interlaced (gfx_mode: twice
+ * the lines, the letters drawn twice as tall so they read as before and do
+ * not flicker); the 32X at 320 x 224. */
+#ifdef MD_ONLY
+#define SQ_HI       1
+#define SQ_W        256
+#define SQ_H        448
+#define SQ_LH       12                  /* a line of text (letters 11 lines tall) */
+#else
+#define SQ_HI       0
+#define SQ_W        SCREEN_W
+#define SQ_H        SCREEN_H
+#define SQ_LH       CHAR_H
+#endif
+#define SQ_TY       (SQ_HI ? 1 : 0)     /* (letters inside a line) */
+#define HDR_H       (SQ_LH + (SQ_HI ? 2 : 3))   /* the title */
+#define BAR_Y       (HDR_H + 1)         /* the transport line */
+#define BAR_H       (SQ_LH + 1)
+#define RUL_Y       (BAR_Y + BAR_H)     /* the ruler */
+#define RUL_H       (SQ_LH + SQ_HI)
+#define TOP_Y       (RUL_Y + RUL_H + 1)
+#define FOOT_Y      (SQ_H - HDR_H)
+#define INFO_Y      (FOOT_Y - SQ_LH - 2)
+
+#define AR_COLS     32                  /* the arrange view: a column a beat */
+#define AR_COLW     (SQ_HI ? 5 : 6)
+#define AR_X        (SQ_W - AR_COLS * AR_COLW - (SQ_HI ? 8 : 24))
+#define AR_Y        TOP_Y               /* the first track */
+#define AR_H        (SQ_HI ? 22 : 10)   /* (the Genesis: room for the notes in small) */
+#define AR_NAME     ((AR_X - 30) / CHAR_W)
+#define PR_X        (SQ_HI ? 20 : 24)   /* the piano roll: 4 pixels a 16th (24 ticks) */
+#define PR_Y        TOP_Y
+#define PR_H        (SQ_HI ? 5 : 4)     /* a semitone */
+#define PR_NH       (SQ_HI ? 4 : 3)     /* a note's height */
+#define PR_SEP      1                   /* (the line under each C) */
+#if SQ_HI                               /* text on a plain background: no reading back (fast) */
+#define TXT(x, y, s, max, fg, bg) gfx_textb(x, y, s, max, fg, bg)
+#else
+#define TXT(x, y, s, max, fg, bg) gfx_text_n(x, y, s, max, fg)
+#endif
+#define PR_N        ((INFO_Y - 1 - PR_Y) / PR_H)        /* semitones shown */
+#define PR_W        (SQ_W - PR_X)
 #define PR_SPAN     ((uint32_t)PR_W * 6)        /* ticks across */
 
 static int sq_flags, sq_sel, sq_bpm = 120, sq_beats = 4, sq_sflags, sq_cyc_a, sq_cyc_b = 4;
@@ -1723,6 +1759,28 @@ static int ov_dirty;                    /* only the menu over the screen to draw
 static int sq_init_done;
 static char sq_file[16];                /* the song's file in MIDI_SONGS ("": not saved yet) */
 static int tk_bar_dirty;                /* the transport line (and the ruler) */
+
+#if SQ_HI
+static uint32_t fill4(int c) { return (uint32_t)(c & 15) * 0x11111111u; }
+#endif
+
+static void sq_header(const char *title)
+{
+    if (!SQ_HI) { header(title); return; }
+    gfx_rect(0, 0, SQ_W, HDR_H, COL_PANEL);
+    TXT(4, 2, title, 30, COL_HI, COL_PANEL);
+    uint16_t f = hw_flags();
+    const char *link = (f & FL_LINK) == LINK_STOCK ? "STOCK" : (f & FL_LINK) == LINK_MIDI ? "MIDI" : "--";
+    TXT(SQ_W - 4 - (int)strlen(link) * CHAR_W, 2, link, 8, (f & FL_LINK) ? COL_GREEN : COL_DIM, COL_PANEL);
+}
+
+static void sq_footer(const char *hint)
+{
+    if (!SQ_HI) { footer(hint); return; }
+    gfx_rect(0, FOOT_Y, SQ_W, SQ_H - FOOT_Y, COL_PANEL);
+    if (message_timer > 0) TXT(4, FOOT_Y + 2, message, 42, COL_HI, COL_PANEL);
+    else TXT(4, FOOT_Y + 2, hint, 42, COL_DIM, COL_PANEL);
+}
 
 static unsigned sq(int op, int a, int p2, int p3)
 {
@@ -1925,9 +1983,9 @@ static void sq_draw_bar(void)           /* the transport line */
 {
     char t[64], *o = t;
     int f = sq_flags;
-    gfx_rect(0, 13, SCREEN_W, 10, COL_BG);
-    const char *st = (f & SQS_COUNTIN) ? "1 2 3 4" : (f & SQS_REC) ? "REC" : (f & SQS_PLAY) ? "PLAY" : "STOP";
-    gfx_text(4, 14, st, (f & SQS_REC) ? COL_RED : (f & SQS_PLAY) ? COL_GREEN : COL_DIM);
+    gfx_rect(0, BAR_Y, SQ_W, BAR_H, COL_BG);
+    const char *st = (f & SQS_COUNTIN) ? "COUNT" : (f & SQS_REC) ? "REC" : (f & SQS_PLAY) ? "PLAY" : "STOP";
+    TXT(4, BAR_Y + 1 + SQ_TY, st, 5, (f & SQS_REC) ? COL_RED : (f & SQS_PLAY) ? COL_GREEN : COL_DIM, COL_BG);
     pos_text(o, sq_pos);
     o += strlen(o);
     o = put_str(o, "  ");
@@ -1942,48 +2000,137 @@ static void sq_draw_bar(void)           /* the transport line */
         o = fmt_num(o, sq_cyc_b);
     }
     *o = 0;
-    gfx_text(52, 14, t, COL_TEXT);
+    TXT(40, BAR_Y + 1 + SQ_TY, t, 36, COL_TEXT, COL_BG);
 }
 
 /* the ruler: bar numbers, the cycle, the playhead's mark */
 static void sq_draw_ruler(int x0, int w, uint32_t t0, int px_per_bar)
 {
     char t[6];
-    gfx_rect(0, 23, SCREEN_W, 9, COL_PANEL);
+    gfx_rect(0, RUL_Y, SQ_W, RUL_H, COL_PANEL);
     uint32_t bl = bar_len();
     for (int b = 0; ; b++) {
         int x = x0 + b * px_per_bar;
         if (x >= x0 + w) break;
-        gfx_vspan(x, 23, 31, COL_LINE);
         *fmt_num(t, (int)(t0 / bl) + b + 1) = 0;
-        if (x + 2 + (int)strlen(t) * CHAR_W <= x0 + w) gfx_text(x + 2, 23, t, COL_DIM);
+        if (x + 2 + (int)strlen(t) * CHAR_W <= x0 + w) TXT(x + 2, RUL_Y + SQ_TY, t, 4, COL_DIM, COL_PANEL);
     }
+    for (int x = x0; x < x0 + w; x += px_per_bar) gfx_vspan(x, RUL_Y, RUL_Y + RUL_H - 1, COL_LINE);
     if (sq_sflags & SF_CYCLE) {
         int a = x0 + (int)(((int32_t)(sq_cyc_a * bl) - (int32_t)t0) * px_per_bar / (int32_t)bl);
         int b = x0 + (int)(((int32_t)(sq_cyc_b * bl) - (int32_t)t0) * px_per_bar / (int32_t)bl);
         if (a < x0) a = x0;
         if (b > x0 + w) b = x0 + w;
-        if (b > a) gfx_rect(a, 30, b - a, 2, COL_ORANGE);
+        if (b > a) gfx_rect(a, RUL_Y + RUL_H - 2 * PR_SEP, b - a, 2 * PR_SEP, COL_ORANGE);
     }
     if (sq_pos >= t0) {
         int x = x0 + (int)((sq_pos - t0) * (uint32_t)px_per_bar / bl);
-        if (x < x0 + w) gfx_rect(x - 1, 23, 3, 9, (sq_flags & SQS_REC) ? COL_RED : COL_GREEN);
+        if (x < x0 + w) gfx_rect(x - 1, RUL_Y, 3, RUL_H, (sq_flags & SQS_REC) ? COL_RED : COL_GREEN);
     }
 }
 
 /* ---- the arrange view */
+#if SQ_HI
+/* (the Genesis at 256 x 448: a track's row shows its notes in small, as
+ * dashes at their pitch (the row spans the lowest to the highest note in
+ * view) and length; the row is written in one pass from a bitmap) */
+extern uint8_t file_buf[];
+#define AR_IN       (AR_H - 4)          /* lines for the notes */
+static const uint8_t *ar_bm;            /* AR_IN lines x 20 bytes: 160 pixels */
+static uint32_t *ar_base, *ar_buf;      /* the row's plain line; a line with notes */
+static int ar_by;                       /* the row's first line */
+static uint32_t ar_fg;
+static const uint16_t nib4[16] = {      /* 4 bits -> 4 nibbles (bit 3: the left pixel) */
+    0x0000, 0x000F, 0x00F0, 0x00FF, 0x0F00, 0x0F0F, 0x0FF0, 0x0FFF,
+    0xF000, 0xF00F, 0xF0F0, 0xF0FF, 0xFF00, 0xFF0F, 0xFFF0, 0xFFFF };
+
+static const uint32_t *ar_line_of(int y)
+{
+    int ly = y - ar_by - 2;
+    if (ly < 0 || ly >= AR_IN) return ar_base;
+    const uint8_t *b = ar_bm + ly * 20;
+    int any = 0;
+    for (int i = 0; i < 20; i++) any |= b[i];
+    if (!any) return ar_base;
+    for (int i = 0; i < 20; i++) {
+        uint32_t m = (uint32_t)nib4[b[i] >> 4] << 16 | nib4[b[i] & 15], w = ar_base[AR_X / 8 + i];
+        ar_buf[AR_X / 8 + i] = (w & ~m) | (ar_fg & m);
+    }
+    return ar_buf;
+}
+
+static void ar_row(int k, const uint8_t *bits)
+{
+    (void)bits;
+    char t[20], nm[17];
+    uint8_t bm[AR_IN * 20];
+    uint32_t base[32], buf[32];
+    int y = AR_Y + k * AR_H, sel = k == sq_sel;
+    for (unsigned i = 0; i < sizeof bm; i++) bm[i] = 0;
+    {                                   /* the plain line: the list, the timeline, the bars */
+        uint32_t bl = fill4(sel ? COL_CURSOR : COL_BG), bt = fill4(sel ? COL_PANEL : COL_BG);
+        for (int tt = 0; tt < 32; tt++) {
+            int x = tt * 8;
+            uint32_t w = x + 8 <= AR_X - 2 ? bl : x >= AR_X - 2 ? bt
+                       : (bl & ~(0xFFFFFFFFu >> (4 * (AR_X - 2 - x)))) | (bt & (0xFFFFFFFFu >> (4 * (AR_X - 2 - x))));
+            base[tt] = buf[tt] = w;
+        }
+        for (int c = 0; c < AR_COLS; c += sq_beats ? sq_beats : 4) {
+            int x = AR_X + c * AR_COLW;
+            uint32_t m = 15u << (28 - 4 * (x & 7));
+            base[x >> 3] = (base[x >> 3] & ~m) | (fill4(COL_LINE) & m);
+            buf[x >> 3] = base[x >> 3];
+        }
+    }
+    /* the notes in view: their range, then their dashes */
+    uint32_t span = (uint32_t)AR_COLS * SONG_PPQ;
+    sq(SQ_NOTES, k, (int)(ar_t0 / 24), (int)(span / 24));
+    int n = file_buf[BUF_DATA] << 8 | file_buf[BUF_DATA + 1], lo = 127, hi = 0;
+    const uint8_t *r = file_buf + BUF_DATA + 2;
+    for (int i = 0; i < n; i++, r += NOTE_REC) { if (r[5] < lo) lo = r[5]; if (r[5] > hi) hi = r[5]; }
+    if (hi - lo < 12) { int m = (lo + hi) / 2; lo = m - 6; hi = m + 6; }
+    r = file_buf + BUF_DATA + 2;
+    for (int i = 0; i < n; i++, r += NOTE_REC) {
+        uint32_t tick = (uint32_t)r[2] << 16 | (uint32_t)r[3] << 8 | r[4], dur = (uint32_t)(r[7] << 8 | r[8]);
+        int32_t a = ((int32_t)tick - (int32_t)ar_t0) * AR_COLW / SONG_PPQ, b = ((int32_t)(tick + dur) - (int32_t)ar_t0) * AR_COLW / SONG_PPQ;
+        if (b <= a) b = a + 1;
+        if (a < 0) a = 0;
+        if (b > 160) b = 160;
+        int ly = (hi - r[5]) * (AR_IN - 2) / (hi - lo);
+        for (int32_t px = a; px < b; px++) {
+            bm[ly * 20 + px / 8] |= (uint8_t)(0x80 >> (px & 7));
+            bm[(ly + 1) * 20 + px / 8] |= (uint8_t)(0x80 >> (px & 7));
+        }
+    }
+    ar_bm = bm;
+    ar_base = base;
+    ar_buf = buf;
+    ar_by = y;
+    ar_fg = fill4((tr_flags[k] & TF_MUTE) ? COL_DIM : kind_cols[tr_kind[k] % TK_COUNT]);
+    gfx_lines(y, y + AR_H - 1, ar_line_of);
+    *put_n(t, k + 1, 2) = 0;
+    int ty = y + (AR_H - 11) / 2;
+    uint8_t bg = sel ? COL_CURSOR : COL_BG;
+    TXT(2, ty, t, 2, sel ? COL_HI : COL_DIM, bg);
+    track_name(k, nm);
+    TXT(16, ty, nm[0] ? nm : kind_names[tr_kind[k] % TK_COUNT], AR_NAME, sel ? COL_HI : kind_cols[tr_kind[k] % TK_COUNT], bg);
+    if (tr_flags[k] & TF_MUTE) TXT(AR_X - 12, ty, "M", 1, COL_RED, bg);
+    else if (tr_flags[k] & TF_SOLO) TXT(AR_X - 12, ty, "S", 1, COL_HI, bg);
+}
+#else
 static void ar_row(int k, const uint8_t *bits)
 {
     char t[20], nm[17];
     int y = AR_Y + k * AR_H, sel = k == sq_sel;
     gfx_rect(0, y, AR_X - 2, AR_H, sel ? COL_CURSOR : COL_BG);
-    gfx_rect(AR_X - 2, y, SCREEN_W - AR_X + 2, AR_H, sel ? COL_PANEL : COL_BG);
+    gfx_rect(AR_X - 2, y, SQ_W - AR_X + 2, AR_H, sel ? COL_PANEL : COL_BG);
     *put_n(t, k + 1, 2) = 0;
-    gfx_text(2, y + 1, t, sel ? COL_HI : COL_DIM);
+    int ty = y + 1 + SQ_TY;
+    gfx_text(2, ty, t, sel ? COL_HI : COL_DIM);
     track_name(k, nm);
-    gfx_text_n(16, y + 1, nm[0] ? nm : kind_names[tr_kind[k] % TK_COUNT], 12, sel ? COL_HI : kind_cols[tr_kind[k] % TK_COUNT]);
-    if (tr_flags[k] & TF_MUTE) gfx_text(92, y + 1, "M", COL_RED);
-    else if (tr_flags[k] & TF_SOLO) gfx_text(92, y + 1, "S", COL_HI);
+    gfx_text_n(16, ty, nm[0] ? nm : kind_names[tr_kind[k] % TK_COUNT], AR_NAME, sel ? COL_HI : kind_cols[tr_kind[k] % TK_COUNT]);
+    if (tr_flags[k] & TF_MUTE) gfx_text(AR_X - 12, ty, "M", COL_RED);
+    else if (tr_flags[k] & TF_SOLO) gfx_text(AR_X - 12, ty, "S", COL_HI);
     for (int c = 0; c < AR_COLS; c++) {
         int x = AR_X + c * AR_COLW;
         if ((uint32_t)c % (uint32_t)(sq_beats ? sq_beats : 4) == 0) gfx_vspan(x, y, y + AR_H - 1, COL_LINE);
@@ -1991,6 +2138,7 @@ static void ar_row(int k, const uint8_t *bits)
             gfx_rect(x + 1, y + 2, AR_COLW - 1, AR_H - 4, (tr_flags[k] & TF_MUTE) ? COL_DIM : kind_cols[tr_kind[k] % TK_COUNT]);
     }
 }
+#endif
 
 static void ar_info(void)               /* the selected track, under the list */
 {
@@ -2001,42 +2149,53 @@ static void ar_info(void)               /* the selected track, under the list */
     o = fmt_num(o, k + 1);
     o = put_str(o, ": ");
     o = put_str(o, kind_names[tr_kind[k] % TK_COUNT]);
-    o = put_str(o, "  MIDI CH ");
+    o = put_str(o, "  CH ");
     o = fmt_num(o, tr_ch[k] + 1);
     o = put_str(o, "  QUANTIZE ");
     o = put_str(o, qn[tr_quant[k] % Q_COUNT]);
     *o = 0;
-    gfx_rect(0, 196, SCREEN_W, 12, COL_BG);
-    gfx_text(4, 198, t, COL_DIM);
+    gfx_rect(0, INFO_Y - 1, SQ_W, SQ_LH + 2, COL_BG);
+    TXT(4, INFO_Y + SQ_TY, t, 42, COL_DIM, COL_BG);
 }
 
 static void draw_arrange(void)
 {
     uint8_t bits[SONG_TRACKS * 4];
     char t[40] = "SONG: ";
-    gfx_clear(COL_BG);
+    if (SQ_HI) {                        /* (all is drawn over: only the gaps) */
+        gfx_rect(0, RUL_Y + RUL_H, SQ_W, TOP_Y - RUL_Y - RUL_H, COL_BG);
+        gfx_rect(0, AR_Y + SONG_TRACKS * AR_H, SQ_W, FOOT_Y - AR_Y - SONG_TRACKS * AR_H, COL_BG);
+    } else {
+        gfx_clear(COL_BG);
+    }
     strcat(t, sq_file[0] ? sq_file : "NEW");
-    header(t);
+    sq_header(t);
     sq_draw_bar();
     sq_shown_mark = (int)(sq_pos / SONG_PPQ);
     sq_draw_ruler(AR_X, AR_COLS * AR_COLW, ar_t0, AR_COLW * (sq_beats ? sq_beats : 4));
-    sq(SQ_OVERVIEW, 0, (int)(ar_t0 / 24), 4);
-    lib_get(BUF_DATA, bits, sizeof bits);
+    if (!SQ_HI) {
+        sq(SQ_OVERVIEW, 0, (int)(ar_t0 / 24), 4);
+        lib_get(BUF_DATA, bits, sizeof bits);
+    }
     for (int k = 0; k < SONG_TRACKS; k++) ar_row(k, bits);
     if (FAST_SCREEN && sq_pos >= ar_t0 && sq_pos < ar_t0 + (uint32_t)AR_COLS * SONG_PPQ)
         gfx_vspan(AR_X + (int)((sq_pos - ar_t0) * AR_COLW / SONG_PPQ), AR_Y, AR_Y + SONG_TRACKS * AR_H - 1,
                   (sq_flags & SQS_REC) ? COL_RED : COL_GREEN);
     ar_info();
-    footer((sq_flags & SQS_PLAY) ? "START STOP  UP/DN TRACK  L/R A BAR  C MENU"
-                                 : "START PLAY  X RECORD  A PIANO ROLL  Y SOUND  C MENU");
+    if (SQ_HI) sq_footer((sq_flags & SQS_PLAY) ? "START STOP  UP/DN TRACK  C MENU"
+                                               : "START PLAY X REC A ROLL Y SOUND C MENU");
+    else footer((sq_flags & SQS_PLAY) ? "START STOP  UP/DN TRACK  L/R A BAR  C MENU"
+                                      : "START PLAY  X RECORD  A PIANO ROLL  Y SOUND  C MENU");
     tk_bar_dirty = 0;
 }
 
 static void ar_redraw_rows(int a, int b)        /* (the selection moved) */
 {
     uint8_t bits[SONG_TRACKS * 4];
-    sq(SQ_OVERVIEW, 0, (int)(ar_t0 / 24), 4);
-    lib_get(BUF_DATA, bits, sizeof bits);
+    if (!SQ_HI) {
+        sq(SQ_OVERVIEW, 0, (int)(ar_t0 / 24), 4);
+        lib_get(BUF_DATA, bits, sizeof bits);
+    }
     ar_row(a, bits);
     if (b != a) ar_row(b, bits);
     ar_info();
@@ -2045,13 +2204,47 @@ static void ar_redraw_rows(int a, int b)        /* (the selection moved) */
 /* ---- the piano roll */
 static int is_black(int n) { return (0x54A >> (n % 12)) & 1; }
 
+#if !SQ_HI
 static void pr_row_bg(int r)            /* row r (0: the lowest note shown) */
 {
     int n = pr_low + r, y = PR_Y + (PR_N - 1 - r) * PR_H;
     gfx_rect(PR_X, y, PR_W, PR_H, is_black(n) ? COL_PANEL : COL_BG);
-    if (n % 12 == 0) gfx_rect(PR_X, y + PR_H - 1, PR_W, 1, COL_LINE);
+    if (n % 12 == 0) gfx_rect(PR_X, y + PR_H - PR_SEP, PR_W, PR_SEP, COL_LINE);
     gfx_rect(0, y, PR_X - 1, PR_H, is_black(n) ? COL_PANEL2 : COL_TEXT);
 }
+#endif
+
+#if SQ_HI
+/* (the Genesis at 256 x 448: the keys, the rows and the beats in one pass;
+ * a line is a white key's, a black key's, or a C's line under its row) */
+static const uint32_t *pr_kinds;        /* 3 lines of 32 words */
+
+static const uint32_t *pr_line_of(int y)
+{
+    int r = PR_N - 1 - (y - PR_Y) / PR_H, n = pr_low + r, ly = (y - PR_Y) % PR_H;
+    return pr_kinds + 32 * (n % 12 == 0 && ly >= PR_H - PR_SEP ? 2 : is_black(n));
+}
+
+static void pr_grid(int y0, int y1)     /* lines y0..y1 of the roll, keys and beats */
+{
+    uint32_t k[3][32];
+    static const uint8_t keyc[3] = { COL_TEXT, COL_PANEL2, COL_TEXT }, bgc[3] = { COL_BG, COL_PANEL, COL_LINE };
+    for (int v = 0; v < 3; v++)
+        for (int t = 0; t < 32; t++) {
+            uint32_t w = 0;
+            for (int p = 0; p < 8; p++) {
+                int x = t * 8 + p;
+                int c = x < PR_X - 1 ? keyc[v] : x == PR_X - 1 ? COL_BG : bgc[v];
+                if (x >= PR_X && (x - PR_X) % (SONG_PPQ / 6) == 0)      /* a beat, a bar */
+                    c = ((uint32_t)(x - PR_X) * 6 + pr_t0) % bar_len() ? COL_PANEL2 : COL_LINE;
+                w |= (uint32_t)c << (28 - 4 * p);
+            }
+            k[v][t] = w;
+        }
+    pr_kinds = &k[0][0];
+    gfx_lines(y0, y1, pr_line_of);
+}
+#endif
 
 static void pr_keys_text(void)
 {
@@ -2062,7 +2255,7 @@ static void pr_keys_text(void)
         t[0] = 'C';
         t[1] = n < 12 ? '-' : (char)('0' + n / 12 - 1);
         t[2] = 0;
-        int y = PR_Y + (PR_N - 1 - r) * PR_H - 5;
+        int y = PR_Y + (PR_N - 1 - r) * PR_H + PR_H - (SQ_HI ? 11 : 9);
         if (y >= PR_Y) gfx_text(2, y, t, COL_BG);
     }
 }
@@ -2093,12 +2286,12 @@ static void note_box(int idx, uint32_t tick, int note, int vel, int dur)
     int32_t x0 = PR_X + ((int32_t)tick - (int32_t)pr_t0) / 6, x1 = PR_X + ((int32_t)(tick + (uint32_t)dur) - (int32_t)pr_t0) / 6;
     if (x1 <= x0) x1 = x0 + 1;
     if (x0 < PR_X) x0 = PR_X;
-    if (x1 > SCREEN_W) x1 = SCREEN_W;
+    if (x1 > SQ_W) x1 = SQ_W;
     if (x1 <= x0) return;
     int y = PR_Y + (PR_N - 1 - (note - pr_low)) * PR_H;
     uint8_t c = idx == pr_sel_idx ? COL_HI : (idx & 0x8000) || (vel & 0x80) ? COL_GREEN : vel >= 96 ? COL_ORANGE : COL_HEAD;
-    gfx_rect((int)x0, y, (int)(x1 - x0), PR_H - 1, c);
-    if (x1 - x0 > 2) gfx_rect((int)x0, y, 1, PR_H - 1, COL_BG);    /* (where it starts) */
+    gfx_rect((int)x0, y, (int)(x1 - x0), PR_NH, c);
+    if (x1 - x0 > 2) gfx_rect((int)x0, y, 1, PR_NH, COL_BG);       /* (where it starts) */
 }
 
 static void find_sel(int idx, uint32_t tick, int note, int vel, int dur)
@@ -2119,7 +2312,10 @@ static void pr_cursor_box(void)
 {
     if (pr_note < pr_low || pr_note >= pr_low + PR_N || pr_cur < pr_t0 || pr_cur >= pr_t0 + PR_SPAN) return;
     int x = PR_X + (int)((pr_cur - pr_t0) / 6), y = PR_Y + (PR_N - 1 - (pr_note - pr_low)) * PR_H;
-    if (pr_sel_idx < 0) gfx_frame(x, y - 1, 4, PR_H + 1, COL_HI);
+    if (pr_sel_idx < 0) {
+        gfx_frame(x, y - 1, 4, PR_H + 1, COL_HI);
+        if (SQ_HI) gfx_frame(x, y, 4, PR_H - 1, COL_HI);      /* (two lines thick: no flicker) */
+    }
 }
 
 
@@ -2129,14 +2325,16 @@ static void note_box_f(int idx, uint32_t tick, int note, int vel, int dur)
     if (pr_only < 0 || note == pr_only) note_box(idx, tick, note, vel, dur);
 }
 
+#if !SQ_HI
 static void pr_beats(int y0, int y1)
 {
     for (uint32_t b = 0; ; b++) {
         int x = PR_X + (int)(b * SONG_PPQ / 6);
-        if (x >= SCREEN_W) break;
+        if (x >= SQ_W) break;
         gfx_vspan(x, y0, y1, (b * SONG_PPQ + pr_t0) % bar_len() ? COL_PANEL2 : COL_LINE);
     }
 }
+#endif
 
 static void pr_line(void)               /* under the roll: the cursor or the chosen note */
 {
@@ -2154,27 +2352,33 @@ static void pr_line(void)               /* under the roll: the cursor or the cho
         o = put_str(o, "/16");
     }
     *o = 0;
-    gfx_rect(0, PR_Y + PR_N * PR_H, SCREEN_W, 212 - (PR_Y + PR_N * PR_H), COL_BG);
-    gfx_text(4, PR_Y + PR_N * PR_H + 2, t, COL_TEXT);
-    footer(pr_sel_idx >= 0 ? "HOLD A: MOVE IT  HOLD B: LENGTH, VELOCITY  B: DELETE"
-                           : "A: A NOTE HERE  X/Y: NEXT/LAST NOTE  C: BACK");
+    gfx_rect(0, PR_Y + PR_N * PR_H, SQ_W, FOOT_Y - (PR_Y + PR_N * PR_H), COL_BG);
+    TXT(4, INFO_Y + SQ_TY, t, 42, COL_TEXT, COL_BG);
+    if (SQ_HI) sq_footer(pr_sel_idx >= 0 ? "HOLD A MOVE  HOLD B LEN/VEL  B DEL" : "A NOTE  X/Y NEXT/LAST  C BACK");
+    else footer(pr_sel_idx >= 0 ? "HOLD A: MOVE IT  HOLD B: LENGTH, VELOCITY  B: DELETE"
+                                : "A: A NOTE HERE  X/Y: NEXT/LAST NOTE  C: BACK");
 }
 
 static void draw_roll(void)
 {
     char t[48], nm[17], *o;
-    gfx_clear(COL_BG);
+    if (SQ_HI) gfx_rect(0, RUL_Y + RUL_H, SQ_W, TOP_Y - RUL_Y - RUL_H, COL_BG);    /* (the rest is drawn over) */
+    else gfx_clear(COL_BG);
     track_name(sq_sel, nm);
     o = put_str(t, "TRACK ");
     o = fmt_num(o, sq_sel + 1);
     o = put_str(o, ": ");
     strcpy(o, nm[0] ? nm : kind_names[tr_kind[sq_sel] % TK_COUNT]);
-    header(t);
+    sq_header(t);
     sq_draw_bar();
     sq_shown_mark = (int)(sq_pos / 24);
     sq_draw_ruler(PR_X, PR_W, pr_t0, (int)(bar_len() / 6));
+#if SQ_HI
+    pr_grid(PR_Y, PR_Y + PR_N * PR_H - 1);
+#else
     for (int r = 0; r < PR_N; r++) pr_row_bg(r);
     pr_beats(PR_Y, PR_Y + PR_N * PR_H - 1);
+#endif
     pr_keys_text();
     pr_select();
     pr_only = -1;
@@ -2196,18 +2400,17 @@ static void pr_redraw_note_rows(int n1, int n2) /* the rows of two notes (the cu
         int n = ns[k];
         if (n < pr_low || n >= pr_low + PR_N || (k == 1 && n == n1)) continue;
         int r = n - pr_low, y = PR_Y + (PR_N - 1 - r) * PR_H;
+#if SQ_HI
+        pr_grid(y, y + PR_H - 1);
+#else
         pr_row_bg(r);
         pr_beats(y, y + PR_H - 1);
+#endif
         pr_only = n;
         pr_notes(pr_t0, PR_SPAN, note_box_f);
         pr_only = -1;
-        if (n % 12 == 0) { char t[4] = { 'C', n < 12 ? '-' : (char)('0' + n / 12 - 1), 0, 0 }; if (y - 5 >= PR_Y) gfx_text(2, y - 5, t, COL_BG); }
-        if (n % 12 == 11 && y + PR_H - 1 >= PR_Y) {     /* (the C below's name reaches up here) */
-            int yc = y + PR_H;
-            char t[4] = { 'C', n + 1 < 12 ? '-' : (char)('0' + (n + 1) / 12 - 1), 0, 0 };
-            if (n + 1 < pr_low + PR_N) gfx_text(2, yc - 5, t, COL_BG);
-        }
     }
+    pr_keys_text();                     /* (the C names reach over a row or two) */
     pr_cursor_box();
     pr_line();
     sq_present = 1;
@@ -2466,14 +2669,16 @@ static void sq_open(int i)
 
 static void draw_songs(void)
 {
-    panel(40, 30, 240, 170);
-    gfx_text(50, 37, "OPEN A SONG (MIDI_SONGS)", COL_HI);
+    int x = SQ_HI ? 8 : 40, y0 = SQ_HI ? 40 : 30, row = SQ_HI ? 14 : 10;
+    panel(x, y0, 240, 16 * row + 10);
+    TXT(x + 10, y0 + 7, "OPEN A SONG (MIDI_SONGS)", 30, COL_HI, COL_PANEL2);
     for (int i = 0; i < 14 && sl_top + i < lib_count; i++) {
-        int k = sl_top + i, y = 52 + i * 10;
-        if (k == sl_pick) gfx_rect(46, y - 2, 228, 10, COL_CURSOR);
-        gfx_text_n(50, y, lib_name(k), 36, k == sl_pick ? COL_HI : COL_TEXT);
+        int k = sl_top + i, y = y0 + 22 + i * row;
+        uint8_t bg = k == sl_pick ? COL_CURSOR : COL_PANEL2;
+        gfx_rect(x + 6, y - 2, 228, row, bg);
+        TXT(x + 10, y + SQ_TY, lib_name(k), 36, k == sl_pick ? COL_HI : COL_TEXT, bg);
     }
-    gfx_text(50, 192, "A: OPEN   B: BACK", COL_DIM);
+    TXT(x + 10, y0 + 16 * row, "A: OPEN   B: BACK", 20, COL_DIM, COL_PANEL2);
 }
 
 static void songs_input(uint16_t p)
@@ -2523,7 +2728,7 @@ static void choose_sound(void)          /* the library, for the selected track *
     int t = track_target(sq_sel);
     if (t < 0) {
         say(tr_kind[sq_sel] == TK_DRUMS ? "DRUMS PLAY THE KIT IN MIDI_DRUMS"
-            : tr_kind[sq_sel] == TK_MIDI ? "A MIDI TRACK: IT ONLY GOES OUT TO THE COMPUTER"
+            : tr_kind[sq_sel] == TK_MIDI ? "A MIDI TRACK: IT ONLY GOES OUT AS MIDI"
                                          : "NO 32X HERE: IT ONLY GOES OUT AS MIDI");
         return;
     }
@@ -2605,15 +2810,21 @@ static const char *const sm_names[NSM] = {
 static int sm_row;
 
 static int sm_old = -1;                 /* (only rows sm_old and sm_row to draw again) */
+#define SM_X        (SQ_HI ? 2 : 20)
+#define SM_W        (SQ_HI ? 252 : 280)
+#define SM_Y        (SQ_HI ? 26 : 14)
+#define SM_TOP      (SM_Y + SQ_LH + 6)
+#define SM_VX       (SQ_HI ? 168 : 196)
 
 static void draw_sm_row(int i)
 {
-    static const char *const qn[Q_COUNT] = { "OFF (AS PLAYED)", "1/4", "1/8", "1/8 TRIPLETS", "1/16", "1/16 TRIPLETS", "1/32" };
+    static const char *const qn[Q_COUNT] = { "OFF: AS PLAYED", "1/4", "1/8", "1/8 TRIPLETS", "1/16", "1/16 TRIPLETS", "1/32" };
     char t[32];
     {
-        int y = 29 + i * 9;
-        gfx_rect(24, y - 1, 272, 9, i == sm_row ? COL_CURSOR : COL_PANEL2);
-        gfx_text(28, y, sm_names[i], i == sm_row ? COL_HI : COL_TEXT);
+        int y = SM_TOP + i * SQ_LH;
+        uint8_t bg = i == sm_row ? COL_CURSOR : COL_PANEL2;
+        gfx_rect(SM_X + 4, y - 1, SM_W - 8, SQ_LH, bg);
+        TXT(SM_X + 8, y, sm_names[i], 26, i == sm_row ? COL_HI : COL_TEXT, bg);
         t[0] = 0;
         int k = sq_sel;
         switch (i) {
@@ -2632,7 +2843,8 @@ static void draw_sm_row(int i)
         case SM_SAVE: strncpy(t, sq_file[0] ? sq_file : "(NEW FILE)", 16); t[16] = 0; break;
         }
         if (i == sq_confirm) strcpy(t, "A AGAIN: SURE?");
-        gfx_text(196, y, t, i == sm_row ? COL_HI : COL_HEAD);
+        t[(SM_X + SM_W - 4 - SM_VX) / CHAR_W] = 0;
+        TXT(SM_VX, y, t, 16, i == sm_row ? COL_HI : COL_HEAD, bg);
     }
 }
 
@@ -2644,8 +2856,8 @@ static void draw_tkmenu(void)
         sm_old = -1;
         return;
     }
-    panel(20, 14, 280, 196);
-    gfx_text(28, 18, "SONG MENU", COL_HI);
+    panel(SM_X, SM_Y, SM_W, SM_TOP - SM_Y + NSM * SQ_LH + 4);
+    TXT(SM_X + 8, SM_Y + 4, "SONG MENU", 10, COL_HI, COL_PANEL2);
     for (int i = 0; i < NSM; i++) draw_sm_row(i);
 }
 
@@ -2750,33 +2962,35 @@ static void draw_tk_help(void)
 {
     static const char *const lines[] = {
         "THE SONG",
-        "ARRANGE: UP/DOWN A TRACK (YOUR KEYBOARD PLAYS IT)",
-        " LEFT/RIGHT A BAR   START PLAY/STOP",
-        " X RECORD (A BAR OF CLICKS, THEN PLAY FREELY)",
-        " A ITS PIANO ROLL   Y ITS SOUND   B MUTE",
-        " Z UNDO THE LAST TAKE   C THE MENU",
+        "ARRANGE: UP/DOWN A TRACK (THE",
+        " KEYBOARD PLAYS IT), LEFT/RIGHT A BAR",
+        " START PLAY/STOP   X RECORD",
+        " A PIANO ROLL  Y SOUND  B MUTE",
+        " Z UNDO THE LAST TAKE   C MENU",
         "",
         "PIANO ROLL: THE D-PAD MOVES THE CURSOR",
-        " A ADD A NOTE (HOLD: MOVE IT, YOU HEAR IT)",
-        " B DELETE (HOLD: LEFT/RIGHT LENGTH,",
-        "   UP/DOWN VELOCITY)   X/Y NEXT/LAST NOTE",
-        " HOLD C: AN OCTAVE / A BAR   C BACK",
+        " A ADD A NOTE (HOLD: MOVE IT)",
+        " B DELETE (HOLD: L/R LENGTH,",
+        "   UP/DOWN VELOCITY)",
+        " X/Y THE NEXT/LAST NOTE",
+        " HOLD C: AN OCTAVE/A BAR  C BACK",
         "",
-        "QUANTIZE (MENU): NOTES TO A GRID; OFF PUTS",
-        "THEM BACK WHERE YOU PLAYED THEM",
+        "QUANTIZE (MENU): NOTES TO A GRID;",
+        "OFF PUTS THEM WHERE YOU PLAYED THEM",
         "",
         "PRESS ANY BUTTON TO CLOSE",
     };
     int n = (int)(sizeof lines / sizeof lines[0]);
-    panel(14, 18, 292, n * CHAR_H + 10);
+    panel(SQ_HI ? 2 : 14, SQ_HI ? 26 : 18, SQ_HI ? 252 : 292, n * SQ_LH + 10);
     for (int i = 0; i < n; i++)
-        gfx_text(22, 24 + i * CHAR_H, lines[i], i == 0 || i == n - 1 ? COL_HI : COL_TEXT);
+        TXT(SQ_HI ? 10 : 22, (SQ_HI ? 31 : 24) + i * SQ_LH, lines[i], 42, i == 0 || i == n - 1 ? COL_HI : COL_TEXT, COL_PANEL2);
 }
 
 /* ------------------------------------------------------------ the loop */
 
 void ui_draw(void)
 {
+    gfx_mode(screen == SCR_ARRANGE || screen == SCR_ROLL);
     part_dirty = 0;
     ov_dirty = 0;
     if (overlay == OV_VIZ) {
@@ -2798,7 +3012,7 @@ void ui_draw(void)
     else if (screen == SCR_ROLL) draw_roll();
     else draw_editor();
     if (overlay == OV_HELP) { if (screen >= SCR_ARRANGE) draw_tk_help(); else draw_help(); }
-    else if (overlay == OV_TKMENU) draw_tkmenu();
+    else if (overlay == OV_TKMENU) { sm_old = -1; draw_tkmenu(); }   /* (all of it, over a new screen) */
     else if (overlay == OV_SONGS) draw_songs();
     else if (overlay == OV_DELETE) draw_delete();
     else if (overlay == OV_SAVE) draw_save();
@@ -2907,7 +3121,7 @@ no_refresh:
     if (++light_timer >= 3 && lights_now() != lights_shown && overlay != OV_GUIDE) {
         light_timer = 0;
         if (overlay == OV_MONITOR) dirty = 1;
-        else if (!dirty) { draw_lights(); if (!part_dirty) gfx_present(); }
+        else if (!dirty && !gfx_hires) { draw_lights(); if (!part_dirty) gfx_present(); }
     }
     if (message_timer > 0 && (message_timer -= frame_el) <= 0)
         dirty = 1;
