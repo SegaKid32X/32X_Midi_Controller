@@ -24,8 +24,20 @@ uint16_t mon_voices;
  * since it last asked (bit n: channel n + 1) */
 uint8_t viz_keyed, viz_keyev;
 
+/* Timer A runs the tracker's clock (md_seq.c): 53 counts of 144 YM2612
+ * clocks, ~1 ms. Register 0x27 also holds channel 3's mode, so writes to it
+ * from elsewhere keep the timer's bits. */
+static uint8_t timer_bits;          /* 0x27's low bits while the timer runs */
+
+static uint8_t keep27(int part, uint8_t reg, uint8_t val)
+{
+    if (!part && reg == 0x27) return (uint8_t)((val & 0xF0) | timer_bits);   /* (its mode, the flag resets) */
+    return val;
+}
+
 void ym_write(int part, uint8_t reg, uint8_t val)
 {
+    val = keep27(part, reg, val);
     if (!part && reg == 0x28 && (val & 3) != 3) {
         uint8_t bit = (uint8_t)(1u << ((val & 3) + (val & 4 ? 3 : 0)));
         if (val & 0xF0) {                                           /* a key on */
@@ -52,6 +64,7 @@ void ym_write(int part, uint8_t reg, uint8_t val)
 
 void ym_chip(int part, uint8_t reg, uint8_t val)
 {
+    val = keep27(part, reg, val);
     ym_wait();
     if (part) {
         YM_A1 = reg;
@@ -86,6 +99,26 @@ void psg_write(uint8_t b)
         p[2 * ch] = (uint8_t)(t >> 8);
         p[2 * ch + 1] = (uint8_t)t;
     }
+}
+
+void ym_timer_run(int on)
+{
+    if (on) {
+        ym_chip(0, 0x24, 971 >> 2);     /* 1024 - 53 */
+        ym_chip(0, 0x25, 971 & 3);
+        timer_bits = 0x05;              /* load A, its flag on */
+        ym_chip(0, 0x27, (uint8_t)(shadow[0x27] | 0x10));    /* (and the flag cleared) */
+    } else {
+        timer_bits = 0;
+        ym_chip(0, 0x27, shadow[0x27]);
+    }
+}
+
+int ym_timer_tick(void)
+{
+    if (!(YM_A0 & 0x01)) return 0;
+    ym_chip(0, 0x27, (uint8_t)(shadow[0x27] | 0x10));        /* clear the flag, run on */
+    return 1;
 }
 
 void flags_publish(void)

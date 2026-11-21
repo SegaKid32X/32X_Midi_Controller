@@ -103,7 +103,7 @@ test-rom: $(OBJ)/$(TARGET).raw $(OBJ)/testpatches/stamp | rom
 MDROM     := rom/midimd.bin
 MDTESTROM := rom/midimd-test.bin
 MDO_SRC   := src/md/md_main.c src/md/md_rx.c src/md/md_snd.c src/md/md_midi.c \
-             src/md/md_files.c src/md/md_ed.c src/md/md_vfs.c \
+             src/md/md_files.c src/md/md_ed.c src/md/md_vfs.c src/md/md_seq.c \
              src/32x/ui.c src/32x/viz.c src/32x/guide.c src/32x/lib.c src/32x/libc_min.c src/common/patch.c \
              src/mdonly/hw_md.c src/mdonly/gfx_md.c src/mdonly/synth_stub.c
 MDO_OBJS  := $(OBJ)/mdonly/crt.o $(patsubst %.c,$(OBJ)/mdonly/%.o,$(notdir $(MDO_SRC)))
@@ -150,10 +150,14 @@ $(OBJ)/host/test_midi: tests/host/test_midi.c src/md/md_midi.c src/md/md.h $(OBJ
 $(OBJ)/host/test_link: tests/host/test_link.c tests/host/host_md.h src/md/md_rx.c src/md/md.h | $(OBJ)/host
 	$(HOSTCC) -O1 -g -std=gnu11 -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined \
 	    -DMD_HOST -Itests/host -Isrc/md -Isrc/common -o $@ tests/host/test_link.c src/md/md_rx.c
-host-test: $(OBJ)/host/test_patch $(OBJ)/host/test_midi $(OBJ)/host/test_link
+$(OBJ)/host/test_seq: tests/host/test_seq.c tests/host/host_md.h src/md/md_seq.c src/md/md.h src/common/song.h | $(OBJ)/host
+	$(HOSTCC) -O1 -g -std=gnu11 -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined \
+	    -DMD_HOST -Itests/host -Isrc/md -Isrc/common -o $@ tests/host/test_seq.c src/md/md_seq.c
+host-test: $(OBJ)/host/test_patch $(OBJ)/host/test_midi $(OBJ)/host/test_link $(OBJ)/host/test_seq
 	$(OBJ)/host/test_patch
 	$(OBJ)/host/test_midi
 	$(OBJ)/host/test_link
+	$(OBJ)/host/test_seq
 
 tests/harness: tests/harness.c
 	$(HOSTCC) -O2 -std=c11 -Wall -o $@ $< -ldl -lm

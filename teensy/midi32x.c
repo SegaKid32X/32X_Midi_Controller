@@ -32,6 +32,14 @@
  * the next. No answer for 2 s: back to the hello. Nothing to send for 300 ms:
  * an Active Sensing byte (FE), which the console ignores, so it knows we are
  * still here.
+ *
+ * MIDI out (the console's tracker, to the computer over USB): after every
+ * few bytes, and every millisecond when there is nothing to send, a read
+ * window: we send 0xF5 (never passed on from MIDI in), let go of the four
+ * data lines, and turn TH over again; each time the console drives the
+ * lines and answers on TR: first how many bytes follow (0-7), then each
+ * byte's high and low nibbles, then a last turn on which it lets go before
+ * answering, and we drive the lines again. The bytes go out as USB MIDI.
  */
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -117,6 +125,7 @@ static void poll_inputs(void)
     /* the MIDI jack */
     while (UCSR1A & (1 << RXC1)) {
         uint8_t st = UCSR1A, b = UDR1;      /* (the status first) */
+        if (b == 0xF5) continue;            /* (ours: the read window) */
         push(st & ((1 << FE1) | (1 << DOR1)) ? 0xF9 : b);   /* 0xF9: a damaged byte */
         led_off = 5;
     }
@@ -137,7 +146,7 @@ static void poll_inputs(void)
         SREG = sreg;
         static const uint8_t len[16] = { 0, 0, 2, 3, 3, 1, 2, 3, 3, 3, 3, 3, 2, 2, 3, 1 };
         uint8_t k = len[b0 & 15];
-        if (k >= 1) push(b1);
+        if (k >= 1 && b1 != 0xF5) push(b1);
         if (k >= 2) push(b2);
         if (k >= 3) push(b3);
         led_off = 5;
@@ -161,6 +170,48 @@ static void th_set(uint8_t level)
 
 static uint8_t tr(void) { return (PIND & 0x02) ? 1 : 0; }
 
+/* ---- MIDI out: from the console to USB ---- */
+
+static void usb_midi_put(uint8_t cin, uint8_t a, uint8_t b, uint8_t c)
+{
+    if (!usb_configuration) return;
+    uint8_t sreg = SREG;
+    cli();
+    UENUM = MIDI_TX_ENDPOINT;
+    uint8_t until = (uint8_t)(UDFNUML + 3);
+    while (!(UEINTX & (1 << RWAL))) {           /* (the computer is not reading: give up soon) */
+        SREG = sreg;
+        if (!usb_configuration || UDFNUML == until) return;
+        cli();
+        UENUM = MIDI_TX_ENDPOINT;
+    }
+    UEDATX = cin & 15;
+    UEDATX = a;
+    UEDATX = b;
+    UEDATX = c;
+    if (!(UEINTX & (1 << RWAL))) UEINTX = 0x3A;     /* full: off it goes (else the next frame) */
+    SREG = sreg;
+}
+
+static uint8_t o_stat, o_data[2], o_n, o_need;
+
+static void out_byte(uint8_t b)
+{
+    if (b >= 0xF8) { usb_midi_put(0x0F, b, 0, 0); return; }        /* clock, start, stop */
+    if (b & 0x80) {
+        o_stat = b >= 0xF0 ? 0 : b;
+        o_n = 0;
+        o_need = (b & 0xE0) == 0xC0 ? 1 : 2;
+        return;
+    }
+    if (!o_stat) return;
+    o_data[o_n++] = b;
+    if (o_n < o_need) return;
+    o_n = 0;
+    usb_midi_put(o_stat >> 4, o_stat, o_data[0], o_need > 1 ? o_data[1] : 0);
+    led_off = 5;
+}
+
 static void hello(void)
 {
     static const uint8_t nib[4] = { 0x9, 0xF, 0xD, 0xF }, b4[4] = { 0, 1, 0, 1 };
@@ -172,6 +223,56 @@ static void hello(void)
         th_set(0);
         _delay_us(20);
     }
+}
+
+/* TH over, then wait for the console's answer: 0, or 1 if none came */
+static uint8_t turn(void)
+{
+    th_set(!th);
+    uint16_t t = t_now();
+    uint8_t steps = 0;
+    while (tr() != th) {
+        if (t_since(t) > MS(200)) {
+            t = t_now();
+            if (++steps >= 10) return 1;        /* 2 s */
+        }
+        poll_inputs();
+    }
+    return 0;
+}
+
+static uint8_t send_now(uint8_t b)
+{
+    lines(b >> 4, 1);
+    _delay_us(1);
+    if (turn()) return 1;
+    lines(b & 15, 0);
+    _delay_us(1);
+    return turn();
+}
+
+/* a read window: 0, or 1 if the console stopped answering */
+static uint8_t window(void)
+{
+    if (send_now(0xF5)) return 1;
+    DDRB &= (uint8_t)~0x0F;                     /* let go of the data lines (no pull-ups) */
+    PORTB &= (uint8_t)~0x0F;
+    if (turn()) return 1;
+    _delay_us(1);
+    uint8_t n = PINB & 15, got[7];
+    if (n > 7) n = 0;
+    for (uint8_t k = 0; k < n; k++) {
+        if (turn()) return 1;
+        _delay_us(1);
+        uint8_t hi = PINB & 15;
+        if (turn()) return 1;
+        _delay_us(1);
+        got[k] = (uint8_t)(hi << 4 | (PINB & 15));
+    }
+    if (turn()) return 1;                       /* it lets go first, then answers */
+    DDRB |= 0x0F;
+    for (uint8_t k = 0; k < n; k++) out_byte(got[k]);
+    return 0;
 }
 
 int main(void)
@@ -192,8 +293,9 @@ int main(void)
     usb_init();
     sei();
 
-    uint8_t linked = 0, waiting = 0, have_low = 0, low = 0;
-    uint16_t t_hello = t_now(), t_ack = 0, t_idle = t_now();
+    uint8_t linked = 0, waiting = 0, have_low = 0, low = 0, since_win = 0;
+    uint16_t t_hello = t_now(), t_ack = 0, t_idle = t_now(), t_win = t_now();
+    uint8_t hold_off = 0;                       /* 200 ms steps the data lines stay let go */
     uint8_t ack_ms = 0;                         /* (2 s counted in steps of 200 ms) */
     uint16_t t_led = t_now();
     uint8_t pin_steps = 0;
@@ -221,6 +323,12 @@ int main(void)
         if (!linked) {
             if (t_since(t_hello) < MS(20)) continue;
             t_hello = t_now();
+            if (hold_off) {                     /* (a window broke off: the console may still
+                                                 * drive the lines until it gives up, 2 s) */
+                if (t_since(t_ack) > MS(200)) { t_ack = t_now(); hold_off--; }
+                continue;
+            }
+            DDRB |= 0x0F;
             hello();
             for (int i = 0; i < 100 && tr(); i++) _delay_us(20);   /* up to 2 ms for an answer */
             if (!tr()) {
@@ -248,6 +356,20 @@ int main(void)
             continue;
         }
 
+        if (!have_low && (since_win >= 4 || t_since(t_win) > MS(1))) {
+            since_win = 0;
+            t_win = t_now();
+            if (window()) {                     /* the console is gone */
+                linked = 0;
+                th_set(0);
+                PORTD &= (uint8_t)~0x40;
+                DDRB &= (uint8_t)~0x0F;
+                hold_off = 13;
+                t_ack = t_hello = t_now();
+            }
+            continue;
+        }
+
         uint8_t nibble, bit4;
         if (have_low) {
             nibble = low;
@@ -261,6 +383,7 @@ int main(void)
             low = b & 15;
             have_low = 1;
             t_idle = t_now();
+            since_win++;
         } else {
             if (t_since(t_idle) > MS(250)) push(0xFE);     /* still here */
             continue;

@@ -21,7 +21,7 @@
 #include "midi_tables.h"
 #include "patch.h"
 
-midi_settings_t ms = { MODE_GENMDM, 0, 0, 1, 0, 2 };
+midi_settings_t ms = { MODE_GENMDM, 0, 0, 1, 0, 1 };
 
 /* ------------------------------------------------------------ chip helpers */
 
@@ -537,6 +537,21 @@ void midi_reset_voices(void)
     for (int i = 0; i < 16; i++) { sustain[i] = 0; bend[i] = 0; }
 }
 
+static void dispatch(uint8_t st, uint8_t a, uint8_t b)
+{
+    int mch = st & 15;
+    if (to_pwm(mch)) {
+        ev_push(st, a, b);
+        return;
+    }
+    switch (st & 0xF0) {
+    case 0x80: note_off(mch, a); break;
+    case 0x90: if (b) note_on(mch, a, b); else note_off(mch, a); break;
+    case 0xB0: control(mch, a, b); break;
+    case 0xE0: bend_to(mch, a | b << 7); break;
+    }
+}
+
 void midi_byte(uint8_t b)
 {
     if (b >= 0xF8) return;                          /* real time: nothing */
@@ -554,16 +569,17 @@ void midi_byte(uint8_t b)
     data[ndata++] = b;
     if (ndata < need) return;
     ndata = 0;
-    int mch = status & 15;
-    if (!midi_quiet) monitor(status, data[0], need > 1 ? data[1] : 0, need + 1);
-    if (to_pwm(mch)) {
-        ev_push(status, data[0], need > 1 ? data[1] : 0);
+    uint8_t d1 = need > 1 ? data[1] : 0;
+    if (!midi_quiet && seq_live(status, data[0], d1))   /* (the tracker took it: md_seq.c) */
         return;
-    }
-    switch (status & 0xF0) {
-    case 0x80: note_off(mch, data[0]); break;
-    case 0x90: if (data[1]) note_on(mch, data[0], data[1]); else note_off(mch, data[0]); break;
-    case 0xB0: control(mch, data[0], data[1]); break;
-    case 0xE0: bend_to(mch, data[0] | data[1] << 7); break;
-    }
+    if (!midi_quiet) monitor(status, data[0], d1, need + 1);
+    dispatch(status, data[0], d1);
+}
+
+/* a whole message from the tracker (md_seq.c): played and shown as if it
+ * came in */
+void midi_play(uint8_t st, uint8_t a, uint8_t b)
+{
+    if (!midi_quiet) monitor(st, a, b, (st & 0xE0) == 0xC0 ? 2 : 3);
+    dispatch(st, a, b);
 }

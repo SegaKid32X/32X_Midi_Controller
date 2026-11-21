@@ -46,7 +46,8 @@
 #define CMD_SHADOW      4   /* P1 = first index: 6 bytes of the register shadow
                              * into P1..P3 (high byte first). Index 0-255 part I,
                              * 256-511 part II, 512-527 PSG (see SH_PSG) */
-#define CMD_SCAN        5   /* look for patch files on the SD card -> count
+#define CMD_SCAN        5   /* P1 = 0: look for patch files on the SD card, 1: for
+                             * songs (MIDI_SONGS, .sng) -> count
                              * (0xFE: no EverDrive, 0xFF: SD error); count in P1 too */
 #define CMD_NAME        6   /* P1 = entry index, P2 = offset: 6 name bytes into P1..P3
                              * (0 after the end); reply = the name's length
@@ -67,7 +68,8 @@
 #define SET_REGION      2   /* tuning: 0 NTSC, 1 PAL */
 #define SET_VELOCITY    3   /* 1: velocity sets the loudness */
 #define SET_SPREAD      4   /* POLY: stereo spread */
-#define SET_COUNT       5
+#define SET_MIDIOUT     5   /* MIDI out to the computer: 0 off, 1 the song, 2 + the keys */
+#define SET_COUNT       6
 #define CMD_EVENTS      16  /* P1 = the first event wanted: up to two 3-byte MIDI
                              * messages for the 32X's voices into P1..P3 -> count.
                              * C_FLAGS' high byte: the next event's number */
@@ -106,6 +108,9 @@
                              * frames so far (the vertical interrupts the 68000
                              * has counted). The pitches: CMD_SHADOW.
                              * P1 = 1: only P3, the frames; nothing cleared. */
+#define CMD_SEQ         23  /* the tracker: P1 = SQ_* << 8 | a byte (src/common/song.h) */
+#define CMD_LOADP       24  /* the patch at BUF_NAME (a path inside MIDI_PATCHES) into
+                             * the buffer at BUF_DATA -> 0 or an error; P1 = its size */
 #define CMD_CRASH       31  /* (written by a crashing SH-2, see crt0.s) */
 
 #define BUF_NAME        0       /* 320 bytes: a path inside MIDI_PATCHES */

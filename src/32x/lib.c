@@ -4,6 +4,7 @@
 #include "lib.h"
 
 int lib_count, lib_skipped;
+int lib_songs;                          /* 1: lib_scan lists MIDI_SONGS (the tracker) */
 char lib_path[PATH_MAX_];
 uint8_t shadow_copy[528];
 
@@ -12,7 +13,7 @@ uint8_t shadow_copy[528];
 int lib_scan(void)
 {
     lib_count = 0;
-    int r = md_cmd(CMD_SCAN, 0, 0, 0);
+    int r = md_cmd(CMD_SCAN, (uint16_t)lib_songs, 0, 0);
     if (r) return -r;
     int n = md_p(C_P1);
     lib_skipped = md_p(C_P2);
@@ -30,14 +31,14 @@ int lib_is_dir(int i)
     return i >= 0 && i < lib_count && file_is_dir(i);
 }
 #else
-static char pool[60000];
+static char pool[16384];                /* (as many names as the 68000 lists: POOL_BYTES, md_files.c) */
 static uint16_t name_at[LIB_MAX];
 static uint8_t dir_of[LIB_MAX];
 
 int lib_scan(void)
 {
     lib_count = 0;
-    int r = md_cmd(CMD_SCAN, 0, 0, 0);
+    int r = md_cmd(CMD_SCAN, (uint16_t)lib_songs, 0, 0);
     if (r) return -r;
     int n = md_p(C_P1);
     lib_skipped = md_p(C_P2);
@@ -319,4 +320,39 @@ void shadow_refresh(void)
 uint8_t shadow_byte(int index)
 {
     return shadow_copy[index];
+}
+
+/* ---- for the tracker (ui.c) */
+void lib_get(int at, uint8_t *b, int n) { get_bytes(at, b, n); }
+
+int lib_get_str(int at, char *out, int max)     /* a zero-terminated string -> its length */
+{
+    int n = 0;
+    for (int off = 0; n < max - 1; off += 6) {
+        md_cmd(CMD_BUF_GET, (uint16_t)(at + off), 0, 0);
+        uint16_t w[3] = { md_p(C_P1), md_p(C_P2), md_p(C_P3) };
+        for (int k = 0; k < 6 && n < max - 1; k++) {
+            char c = (char)(k & 1 ? w[k >> 1] : w[k >> 1] >> 8);
+            if (!c) { out[n] = 0; return n; }
+            out[n++] = c;
+        }
+    }
+    out[n] = 0;
+    return n;
+}
+
+int lib_put_name(const char *s) { return put_name(s); }
+
+int lib_load_path(const char *rel, fm_patch *fm, psg_patch *psg)
+{
+    int r = put_name(rel);
+    if (!r) r = md_cmd(CMD_LOADP, 0, 0, 0);
+    if (r) return r;
+    int size = md_p(C_P1);
+    if (size > (int)sizeof data) size = sizeof data;
+    get_bytes(BUF_DATA, data, size);
+    int fmt = patch_format_of(rel);
+    if (!patch_parse(fm, fmt, data, size)) return LOAD_FM;
+    if (fmt == FMT_DMP && !psg_parse(psg, data, size)) return LOAD_PSG;
+    return ERR_RANGE;
 }

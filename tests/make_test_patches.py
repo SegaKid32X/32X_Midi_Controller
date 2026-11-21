@@ -60,6 +60,37 @@ def y12(alg, fb, seed, name):
 (out / "Lead Saw.y12").write_bytes(y12(6, 4, 6, "Lead Saw"))
 
 
+# a song for the tracker (src/common/song.h): MIDI_SONGS/demo.sng, its parts
+# naming the patches above (FM 1 brass, FM 2 bass, the 32X's CH 11 piano)
+def song():
+    lanes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 10, 11, 15, 15, 15, 15, 15, 15]
+    pats = {0: [(0, 0, 60, 100), (4, 0, 64, 100), (8, 0, 67, 100), (14, 0, 0xFF, 0),
+                (0, 1, 36, 110), (8, 1, 36, 90), (0, 10, 72, 90), (0, 14, 76, 90), (12, 10, 0xFF, 0),
+                (0, 18, 36, 127), (4, 18, 38, 120), (8, 18, 36, 127), (12, 18, 38, 120)],
+            1: [(0, 0, 65, 100), (4, 0, 69, 100), (0, 1, 41, 110), (8, 1, 41, 90),
+                (0, 18, 36, 127), (8, 18, 36, 127)]}
+    h = bytearray(1408)
+    h[0:4] = b"MSNG"
+    h[4], h[5], h[6:8] = 1, 4, (140).to_bytes(2, "big")
+    h[8], h[9], h[10] = 3, 0, 64
+    h[12:16] = b"demo"
+    h[36:36 + len(lanes)] = bytes(lanes)
+    h[60:63] = bytes([0, 1, 0])
+    for p in range(64):
+        h[188 + p] = 16
+        h[252 + p * 2:254 + p * 2] = len(pats.get(p, [])).to_bytes(2, "big")
+    paths = [""] * 16
+    paths[0], paths[1], paths[10] = "Brass Section.tfi", "Bass/Slap Bass.tfi", "E.Piano.tfi"
+    packed = b"".join(x.encode() + b"\0" for x in paths)
+    h[384:384 + len(packed)] = packed
+    ev = b"".join(bytes(e) for p in sorted(pats) for e in pats[p])
+    return bytes(h) + ev
+
+
+(out / "MIDI_SONGS").mkdir(exist_ok=True)
+(out / "MIDI_SONGS" / "demo.sng").write_bytes(song())
+
+
 # drum samples (made up here): WAVs in three formats
 import math
 import random

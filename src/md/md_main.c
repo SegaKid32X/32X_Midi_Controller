@@ -109,6 +109,7 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
         put6(b);
         return 0;
     case CMD_SCAN: {
+        files_mode(p1 == 1);
         int n = files_scan();
         if (n == ERR_NO_ED || n == ERR_SD) {
             COMM16(C_P1) = 0;
@@ -152,6 +153,14 @@ static unsigned run_command(int cmd, uint16_t p1, uint16_t p2, uint16_t p3)
         COMM16(C_P1) = size;
         return (unsigned)e;
     }
+    case CMD_LOADP: {
+        uint16_t size = 0;
+        int e = file_load_path(&size);
+        COMM16(C_P1) = size;
+        return (unsigned)e;
+    }
+    case CMD_SEQ:
+        return seq_command(p1, p2, p3);
     case CMD_BUF_GET:
         for (int k = 0; k < 6; k++)
             b[k] = p1 + k < BUF_SIZE ? file_buf[p1 + k] : 0;
@@ -286,6 +295,7 @@ static int frame_tick(void)
 #endif
     rx_frame();
     midi_frame();
+    seq_frame();
     /* test telemetry (tests/harness.c reads work RAM 0xFFFF00) */
     volatile uint16_t *t = (volatile uint16_t *)0xFFFF00;
     t[0] = 0x5354;
@@ -308,6 +318,7 @@ static int frame_tick(void)
 static void md_poll(void)
 {
     rx_poll();
+    seq_poll();
     frame_tick();
 }
 #endif
@@ -329,6 +340,7 @@ void md_main(int boot_err)
     if (VDP_CTRL & 1)           /* a PAL console: PAL tuning */
         ms.region = 1;
     midi_init();
+    seq_init();
     rx_init();
 
     md_flags = 0;
@@ -356,6 +368,7 @@ void md_main(int boot_err)
     unsigned last_seq = 0;
     for (;;) {
         rx_poll();
+        seq_poll();
 #ifdef MD_ONLY
         if (frame_tick())
             ui_frame();

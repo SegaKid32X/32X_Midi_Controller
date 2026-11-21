@@ -59,12 +59,35 @@ void rx_init(void)
 
 /* ---- our firmware: a MIDI byte as two nibbles (bit 4 set: the high one).
  * Each nibble turns the strobe (TH) over; we answer on TR with the level we
- * took, and the Teensy waits for that before the next. ---- */
+ * took, and the Teensy waits for that before the next.
+ *
+ * MIDI out (to the computer): every millisecond or so the Teensy sends 0xF5
+ * and lets go of the four data lines; then it turns TH over a few more
+ * times, and each time we drive them and answer on TR: first how many bytes
+ * follow (0-7), then each byte as two nibbles (high first), then a last
+ * turn on which we let go of the lines again before answering (so the two
+ * never drive them at once). ---- */
+
+static volatile uint8_t tx_ring[256];
+static volatile uint8_t tx_head, tx_tail;
+static uint8_t tx_state, tx_n, tx_i, tx_hi;     /* the read window (0: none) */
+
+void midi_out(uint8_t b)
+{
+    if (!rx_custom) return;
+    uint8_t h = tx_head;
+    if ((uint8_t)(h + 1) == tx_tail) return;    /* full: dropped */
+    tx_ring[h] = b;
+    tx_head = (uint8_t)(h + 1);
+}
 
 static void start_custom(void)
 {
     expect = 0x40;                      /* the Teensy left TH low: the first nibble raises it */
     have_hi = 0;
+    tx_state = 0;
+    tx_hi = 0;
+    tx_tail = tx_head;
     quiet = 0;
     PAD2_DATA = 0x00;                   /* TR low: "heard you" */
     PAD2_CTRL = 0xA0;                   /* TR an output, TH's interrupt on */
@@ -76,7 +99,8 @@ static void start_custom(void)
 static void stop_custom(void)
 {
     rx_custom = 0;
-    PAD2_CTRL = 0x80;                   /* let go of TR */
+    tx_state = 0;
+    PAD2_CTRL = 0x80;                   /* let go of TR (and the data lines) */
     midi_reset_voices();
     last = 0xFF;
     set_link(LINK_NONE);
@@ -88,9 +112,43 @@ void rx_take(uint8_t v)
 {
     if ((v & 0x40) != expect)
         return;
-    rx_ring[rx_head++] = v;
     expect ^= 0x40;
-    PAD2_DATA = (v & 0x40) ? 0x20 : 0x00;
+    uint8_t ack = (v & 0x40) ? 0x20 : 0x00;
+    switch (tx_state) {
+    case 0:                             /* a nibble of MIDI in */
+        rx_ring[rx_head++] = v;
+        if (v & 0x10) {
+            tx_hi = v & 15;
+        } else {
+            if (tx_hi == 0xF && (v & 15) == 0x5) tx_state = 1;     /* 0xF5: the Teensy reads */
+            tx_hi = 0;
+        }
+        PAD2_DATA = ack;
+        return;
+    case 1: {                           /* how many bytes */
+        uint8_t n = (uint8_t)(tx_head - tx_tail);
+        if (n > 7) n = 7;
+        tx_n = n;
+        tx_i = 0;
+        PAD2_DATA = (uint8_t)((ack ^ 0x20) | n);    /* the lines first, TR as it was */
+        PAD2_CTRL = 0xAF;               /* drive them */
+        PAD2_DATA = (uint8_t)(ack | n);  /* then answer */
+        tx_state = n ? 2 : 3;
+        return;
+    }
+    case 2: {                           /* a nibble out */
+        uint8_t b = tx_ring[(uint8_t)(tx_tail + (tx_i >> 1))];
+        PAD2_DATA = (uint8_t)(ack | ((tx_i & 1) ? (b & 15) : (b >> 4)));
+        if (++tx_i >= 2 * tx_n) tx_state = 3;
+        return;
+    }
+    default:                            /* done: let go of the lines, then answer */
+        PAD2_CTRL = 0xA0;
+        PAD2_DATA = ack;
+        tx_tail = (uint8_t)(tx_tail + tx_n);
+        tx_state = 0;
+        return;
+    }
 }
 
 uint16_t rx_bytes, rx_errors;           /* for the monitor: bytes from the Teensy
@@ -114,6 +172,7 @@ static void custom_nibble(uint8_t v)
             return;
         }
         if (b == 0xF4) { pin_next = 1; return; }
+        if (b == 0xF5) return;          /* (the Teensy's read window: rx_take) */
         if (b == 0xF9) rx_errors++;     /* (our firmware: the MIDI jack got a bad byte) */
         else if (b != 0xFE) rx_bytes++;
         midi_byte(b);

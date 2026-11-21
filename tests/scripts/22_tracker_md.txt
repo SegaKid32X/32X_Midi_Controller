@@ -1,0 +1,135 @@
+# rom: md
+# pad6
+# The song tracker (the Genesis-only build): Z on the home screen opens it. A puts a note (held: the
+# D-pad changes it), A+B a note off; START plays the pattern (sound); the
+# MIDI keyboard enters notes (Y) and records while playing (X, START); the
+# menu (C) opens MIDI_SONGS/demo.sng, which loads its parts' instruments,
+# and plays it; the song page shows the order list.
+run 300
+hello
+run 10
+press z 4
+run 30
+shot md_tk_empty
+press a 4
+run 10
+press down 4
+run 6
+press down 4
+run 6
+hold a
+run 4
+press up 4
+run 6
+press up 4
+run 6
+press right 4
+run 6
+release a
+run 6
+press down 4
+run 6
+hold a
+run 6
+press b 4
+run 6
+release a
+run 6
+press down 4
+run 6
+press right 4
+run 6
+press a 4
+run 10
+shot md_tk_notes
+audiomark
+press start 4
+run 60
+loud 200
+shot md_tk_playing
+press start 4
+run 20
+press y 4
+run 10
+press right 4
+run 6
+hello
+run 10
+midi 90 40 64
+run 4
+midi 80 40 00
+run 4
+midi 90 43 50
+run 4
+midi 90 47 50
+run 4
+midi 80 43 00 80 47 00
+run 10
+shot md_tk_steps
+press y 4
+run 4
+press x 4
+run 4
+hello
+run 10
+press start 4
+run 20
+midi 90 30 70
+run 30
+midi 80 30 00
+run 20
+press start 4
+run 20
+shot md_tk_recorded
+press c 4
+run 10
+press up 4
+run 4
+press up 4
+run 4
+press up 4
+run 4
+press up 4
+run 4
+press up 4
+run 10
+shot md_tk_menu
+press a 4
+run 120
+shot md_tk_songs
+press a 4
+run 300
+shot md_tk_demo
+audiomark
+press start 4
+run 120
+loud 300
+shot md_tk_demo_play
+press start 4
+run 20
+press c 4
+run 10
+press up 4
+run 4
+press up 4
+run 4
+press up 4
+run 4
+press up 4
+run 4
+press up 4
+run 4
+press up 4
+run 4
+press up 4
+run 4
+press up 4
+run 4
+press a 4
+run 30
+shot md_tk_song_page
+press c 4
+run 20
+shot md_tk_back
+dumpram tracker_md
+telem

@@ -20,7 +20,7 @@ def main() -> int:
     rom = bytearray(Path(sys.argv[1]).read_bytes())
     root = Path(sys.argv[3])
     files = sorted(p for p in root.rglob("*")     # folders too: "Bass/Slap.tfi"
-                   if p.is_file() and p.suffix.lower() in (".tfi", ".dmp", ".y12"))
+                   if p.is_file() and p.suffix.lower() in (".tfi", ".dmp", ".y12", ".sng"))   # (.sng: MIDI_SONGS/)
     entries = [(f.relative_to(root).as_posix(), f) for f in files]
     if len(sys.argv) == 5:
         entries += [("!drums/" + f.name, f) for f in sorted(Path(sys.argv[4]).glob("*.wav"))]

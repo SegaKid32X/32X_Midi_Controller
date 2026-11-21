@@ -79,11 +79,12 @@ typedef struct {
     uint8_t region;             /* tuning: 0 NTSC, 1 PAL */
     uint8_t velocity;           /* 1: velocity sets the loudness */
     uint8_t spread;             /* POLY: each note left, right or both */
-    uint8_t reserved;
+    uint8_t midi_out;           /* to the computer: 0 off, 1 the song, 2 the song and the keys */
 } midi_settings_t;
 extern midi_settings_t ms;
 void midi_init(void);
 void midi_byte(uint8_t b);
+void midi_play(uint8_t st, uint8_t a, uint8_t b);      /* a whole message (the tracker) */
 void midi_reset_voices(void);
 void midi_frame(void);          /* once a frame: the PSG instruments' sequences */
 int  midi_psg_set(int c, const uint8_t *in, int len);  /* CMD_PSG_SET */
@@ -98,6 +99,29 @@ extern uint8_t ev_ring[1][3];
 #else
 extern uint8_t ev_ring[256][3];
 #endif
+
+/* md_seq.c: the tracker's song and sequencer (src/common/song.h) */
+void seq_init(void);
+void seq_poll(void);            /* as often as possible: the clock */
+void seq_frame(void);           /* once a frame */
+int  seq_live(uint8_t st, uint8_t a, uint8_t b);       /* the keyboard: 1 if taken */
+unsigned seq_command(uint16_t p1, uint16_t p2, uint16_t p3);   /* CMD_SEQ */
+void seq_stop(void);
+int  seq_playing(void);
+int  song_cell_set(int p, int row, int lane, int note, int vel);
+int  song_cell_get(int p, int row, int lane, int *vel);
+int  song_path_get(int k, char *out, int max);
+int  song_path_set(int k, const char *s);
+int  song_patop(int op, int p, int other, int arg);
+void song_new(void);
+int  song_save(void);
+int  song_load(void);
+int  song_export(void);
+/* md_snd.c: the YM2612's timer A (~1 ms), the sequencer's clock */
+void ym_timer_run(int on);
+int  ym_timer_tick(void);       /* 1 once per overflow */
+/* md_rx.c: MIDI out to the computer (our firmware reads it back) */
+void midi_out(uint8_t b);
 
 /* md_drums.c: the drum kit (WAVs in MIDI_DRUMS, into cartridge memory) */
 #define MAX_DRUMS   64
@@ -129,6 +153,11 @@ int  file_save(uint16_t len);
 int  file_delete(void);
 int  file_is_dir(int i);
 void files_cd(void);            /* the folder at BUF_NAME (inside MIDI_PATCHES) */
+void files_mode(int songs);     /* what files_scan lists: 0 patches, 1 songs (MIDI_SONGS, .sng) */
+int  file_load_path(uint16_t *size);    /* BUF_NAME (inside MIDI_PATCHES) into BUF_DATA */
+const char *files_song_path(void);      /* MIDI_SONGS/<BUF_NAME>, or 0: no EverDrive */
+int  files_song_read(uint8_t *dst, int max, uint16_t *len);    /* that file (or a built-in one) */
+void files_song_mkdir(void);
 extern int files_skipped;
 
 /* md_ed.c: the Mega EverDrive (runs from work RAM with RV = 1) */
@@ -143,6 +172,9 @@ int  junk_name(const char *n);  /* a file or folder computers leave behind (md_f
 int  ed_read_file(const char *path, uint8_t *dst, int max, uint16_t *len);
 int  ed_write_file(const char *path, const uint8_t *src, int len);
 int  ed_delete(const char *path);
+int  ed_stream_open(const char *path, uint32_t len);   /* a file written in pieces: */
+int  ed_stream_put(const uint8_t *src, int len);       /* (1 KB each, the last any size) */
+int  ed_stream_close(void);
 int  ed_mkdir(const char *path);
 
 /* md_vfs.c: patches built into the ROM (tests, no EverDrive) */

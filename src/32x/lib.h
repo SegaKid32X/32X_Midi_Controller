@@ -36,6 +36,11 @@ int  lib_save(const char *name, const fm_patch *p);    /* 0 or an error */
 int  lib_delete(const char *name);
 int  lib_find(const char *name);        /* index, or -1 */
 void lib_new_name(char *out, const char *ext);         /* "newpatch001.tfi" ... */
+extern int lib_songs;                   /* 1: lib_scan lists the songs (MIDI_SONGS) */
+void lib_get(int at, uint8_t *b, int n);                /* the 68000's buffer */
+int  lib_get_str(int at, char *out, int max);
+int  lib_put_name(const char *s);                       /* -> BUF_NAME */
+int  lib_load_path(const char *rel, fm_patch *fm, psg_patch *psg);  /* LOAD_FM / LOAD_PSG / error */
 
 /* the sound chip */
 void ym_set(int ch, uint8_t reg, uint8_t val);       /* a channel's register (reg as for part I) */

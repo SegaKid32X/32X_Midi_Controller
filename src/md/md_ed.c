@@ -371,6 +371,58 @@ int RAM ed_write_file(const char *path, const uint8_t *src, int len)
     return e;
 }
 
+/* A file written in pieces (a standard MIDI file made as it goes,
+ * md_seq.c): open with its whole length, then the data 1 KiB at a time (the
+ * EverDrive asks for each), then close. Between the pieces RV is back to 0,
+ * so the caller can run from the cartridge. */
+static int stream_left;
+
+int RAM ed_stream_open(const char *path, uint32_t len)
+{
+    if (!ed_ok) return ERR_STATUS;
+    COMM16(C_FLAGS) |= FL_BUSY;
+    rv_on();
+    cmd_tx(CMD_F_FOPN);
+    fifo_wr8(FA_WRITE | FA_CREATE_ALWAYS);
+    tx_string(path);
+    int e = check_status();
+    if (!e) {
+        cmd_tx(CMD_F_FWR);
+        fifo_wr32(len);
+        stream_left = (int)len;
+    }
+    rv_off();
+    return e;
+}
+
+int RAM ed_stream_put(const uint8_t *src, int len)
+{
+    if (len > stream_left) len = stream_left;
+    rv_on();
+    int e = 0;
+    uint8_t resp;
+    if (fifo_rd(&resp, 1)) e = ERR_TIMEOUT;
+    else if (resp) e = resp;
+    else {
+        for (int i = 0; i < len; i++) fifo_wr8(src[i]);
+        stream_left -= len;
+    }
+    rv_off();
+    return e;
+}
+
+int RAM ed_stream_close(void)
+{
+    rv_on();
+    int e = stream_left ? ERR_TIMEOUT : check_status();
+    cmd_tx(CMD_F_FCLOSE);
+    int c = check_status();
+    if (!e) e = c;
+    rv_off();
+    COMM16(C_FLAGS) &= (uint16_t)~FL_BUSY;
+    return e;
+}
+
 int RAM ed_delete(const char *path)
 {
     if (!ed_ok) return ERR_STATUS;

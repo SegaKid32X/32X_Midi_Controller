@@ -11,7 +11,7 @@
 #ifdef MD_ONLY
 #define POOL_BYTES  8192        /* (the Genesis-only build: 64 KB of RAM holds the screen too) */
 #else
-#define POOL_BYTES  40960
+#define POOL_BYTES  16384         /* (the rest of the 68000's RAM holds the song: md_seq.c) */
 #endif
 
 uint8_t file_buf[BUF_SIZE];
@@ -21,7 +21,10 @@ static uint16_t vfs_index[MAX_FILES];   /* (built-in patches: which one) */
 static uint8_t is_dir_of[MAX_FILES];
 static int count, used;
 static int from_vfs;
-static char folder[] = "/MIDI_PATCHES";     /* (in RAM: md_ed.c reads it with RV = 1) */
+static char folder_p[] = "/MIDI_PATCHES";   /* (in RAM: md_ed.c reads them with RV = 1) */
+static char folder_s[] = "/MIDI_SONGS";
+static char *folder = folder_p;
+static int songs;                       /* 1: listing songs (.sng in MIDI_SONGS) */
 static char sub[160];                   /* the folder shown, inside it ("" = the top) */
 static char path[320];                  /* folder / sub / name */
 int files_skipped;                      /* patch files left out (names too long, too many) */
@@ -44,7 +47,7 @@ int junk_name(const char *n)
     return 0;
 }
 
-/* .tfi .dmp .y12 (any case) */
+/* .tfi .dmp .y12 (any case); listing songs, .sng */
 static int is_patch(const char *n)
 {
     int len = slen(n);
@@ -52,9 +55,16 @@ static int is_patch(const char *n)
     const char *e = n + len - 4;
     if (e[0] != '.') return 0;
     int a = lower(e[1]), b = lower(e[2]), c = lower(e[3]);
+    if (songs) return a == 's' && b == 'n' && c == 'g';
     return (a == 't' && b == 'f' && c == 'i') ||
            (a == 'd' && b == 'm' && c == 'p') ||
            (a == 'y' && b == '1' && c == '2');
+}
+
+void files_mode(int s)
+{
+    songs = s;
+    folder = s ? folder_s : folder_p;
 }
 
 /* the current folder: a path inside MIDI_PATCHES, from BUF_NAME */
@@ -115,6 +125,13 @@ static int scan_vfs(void)
             uint16_t len;
             vfs_file(i, &name, &len);
             if (name[0] == '!') continue;   /* (the test drums) */
+            {                               /* (songs: MIDI_SONGS/ in the built-in files) */
+                static const char sd[] = "MIDI_SONGS/";
+                int k = 0;
+                while (sd[k] && name[k] == sd[k]) k++;
+                if ((sd[k] == 0) != songs) continue;
+                if (songs) name += k;
+            }
             {                               /* macOS's leftovers, at any depth */
                 const char *c = name;
                 int bad = 0;
@@ -253,6 +270,82 @@ int file_save(uint16_t len)
     make_path((const char *)file_buf + BUF_NAME);
     (void)ed_mkdir(folder);             /* (an error if it is there already) */
     return ed_write_file(path, file_buf + BUF_DATA, len);
+}
+
+/* BUF_NAME (a path inside MIDI_PATCHES) into file_buf + BUF_DATA: an
+ * instrument a song names */
+int file_load_path(uint16_t *size)
+{
+    file_buf[BUF_DATA - 1] = 0;
+    const char *rel = (const char *)file_buf + BUF_NAME;
+    if (!(md_flags & FL_ED) && !vfs_scan()) set_flag(FL_ED, ed_detect());  /* (a test ROM: no wait) */
+    if (!(md_flags & FL_ED)) {          /* the built-in patches */
+        int n = vfs_scan();
+        for (int i = 0; i < n; i++) {
+            const char *nm;
+            uint16_t len;
+            const uint8_t *p = vfs_file(i, &nm, &len);
+            int k = 0;
+            while (rel[k] && nm[k] == rel[k]) k++;
+            if (rel[k] || nm[k]) continue;
+            if (len > BUF_SIZE - BUF_DATA) return ERR_TOO_BIG;
+            for (int j = 0; j < len; j++) file_buf[BUF_DATA + j] = p[j];
+            *size = len;
+            return 0;
+        }
+        return ERR_NO_ED;
+    }
+    char *keep = folder;
+    folder = folder_p;
+    make_path(rel);
+    folder = keep;
+    return ed_read_file(path, file_buf + BUF_DATA, BUF_SIZE - BUF_DATA, size);
+}
+
+/* MIDI_SONGS / BUF_NAME, in RAM for md_ed.c; 0 without an EverDrive */
+const char *files_song_path(void)
+{
+    if (!(md_flags & FL_ED) && !vfs_scan()) set_flag(FL_ED, ed_detect());
+    if (!(md_flags & FL_ED)) return 0;
+    file_buf[BUF_DATA - 1] = 0;
+    char *keep = folder;
+    folder = folder_s;
+    make_path((const char *)file_buf + BUF_NAME);
+    folder = keep;
+    return path;
+}
+
+void files_song_mkdir(void)
+{
+    (void)ed_mkdir(folder_s);           /* (an error if it is there already) */
+}
+
+/* the song file named at BUF_NAME into dst (test builds: MIDI_SONGS/name
+ * among the built-in files) */
+int files_song_read(uint8_t *dst, int max, uint16_t *len)
+{
+    const char *p = files_song_path();
+    if (p) return ed_read_file(p, dst, max, len);
+    const char *rel = (const char *)file_buf + BUF_NAME;
+    static const char sd[] = "MIDI_SONGS/";
+    int n = vfs_scan();
+    for (int i = 0; i < n; i++) {
+        const char *nm;
+        uint16_t l;
+        const uint8_t *src = vfs_file(i, &nm, &l);
+        int k = 0;
+        while (sd[k] && nm[k] == sd[k]) k++;
+        if (sd[k]) continue;
+        nm += k;
+        k = 0;
+        while (rel[k] && nm[k] == rel[k]) k++;
+        if (rel[k] || nm[k]) continue;
+        if (l > max) return ERR_TOO_BIG;
+        for (int j = 0; j < l; j++) dst[j] = src[j];
+        *len = l;
+        return 0;
+    }
+    return ERR_NO_ED;
 }
 
 int file_delete(void)

@@ -16,6 +16,7 @@ void psg_write(uint8_t b) { if (psg_n < 64) psg_last[psg_n++] = b; }
 void act_bump(void) { act_count++; }
 uint16_t md_flags;
 void flags_publish(void) {}
+int seq_live(uint8_t st, uint8_t a, uint8_t b) { (void)st; (void)a; (void)b; return 0; }
 
 static int fails;
 #define CHECK(c, ...) do { if (!(c)) { printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
