@@ -396,7 +396,7 @@ static int note_on(int t, int note, int vel, int out)
         v_on[v] = 1; v_track[v] = (uint8_t)t; v_note[v] = (uint8_t)note; v_age[v] = ++age_now;
         h = v;
     } else if (kind == TK_X32 || kind == TK_DRUMS) {
-        int c = kind == TK_DRUMS ? 15 : 10 + (ch_of(t) & 3);
+        int c = kind == TK_DRUMS ? 15 : 10 + ((ch_of(t) - 10) & 3);   /* (11-14) */
         midi_play((uint8_t)(0x90 | c), (uint8_t)note, (uint8_t)vel);
         h = 0x80 | c;
     }
@@ -685,6 +685,7 @@ void seq_play(int rec)
         if (now) { spp_out(); midi_out(0xFB); } else midi_out(0xFA);
     }
     ym_timer_run(1);
+    tick_step();                        /* (the first tick at once: its notes, the first click) */
 }
 
 int seq_playing(void) { return (seq_flags & SQS_PLAY) != 0; }
