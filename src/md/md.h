@@ -100,19 +100,16 @@ extern uint8_t ev_ring[1][3];
 extern uint8_t ev_ring[256][3];
 #endif
 
-/* md_seq.c: the tracker's song and sequencer (src/common/song.h) */
+/* md_seq.c: the song (tracks of notes) and the sequencer (src/common/song.h) */
 void seq_init(void);
 void seq_poll(void);            /* as often as possible: the clock */
 void seq_frame(void);           /* once a frame */
 int  seq_live(uint8_t st, uint8_t a, uint8_t b);       /* the keyboard: 1 if taken */
 unsigned seq_command(uint16_t p1, uint16_t p2, uint16_t p3);   /* CMD_SEQ */
 void seq_stop(void);
+void seq_play(int rec);
+void seq_locate(uint32_t tick);
 int  seq_playing(void);
-int  song_cell_set(int p, int row, int lane, int note, int vel);
-int  song_cell_get(int p, int row, int lane, int *vel);
-int  song_path_get(int k, char *out, int max);
-int  song_path_set(int k, const char *s);
-int  song_patop(int op, int p, int other, int arg);
 void song_new(void);
 int  song_save(void);
 int  song_load(void);
