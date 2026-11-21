@@ -116,6 +116,8 @@
 #define SQ_LOAD         18
 #define SQ_EXPORT       19      /* a standard MIDI file (type 1: a track each) */
 #define SQ_FREE         20      /* P1 = notes free, P2 = notes used */
+#define SQ_KEY          21      /* P2 = status << 8 | note, P3 = velocity: as the keyboard,
+                                 * on the selected track (to hear a note being edited) */
 
 #define SONG_DIR        "/MIDI_SONGS"
 

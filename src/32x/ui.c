@@ -21,7 +21,7 @@
 #include "viz.h"
 #include "song.h"
 
-enum { SCR_LIBRARY, SCR_EDITOR, SCR_PSGED, SCR_TRACKER, SCR_SONG };
+enum { SCR_LIBRARY, SCR_EDITOR, SCR_PSGED, SCR_ARRANGE, SCR_ROLL };
 enum { OV_NONE, OV_HELP, OV_DELETE, OV_SAVE, OV_GUIDE, OV_MENU, OV_SETTINGS, OV_MONITOR, OV_PSGMENU, OV_VIZ, OV_TKMENU, OV_SONGS };
 
 #define ALL_CH      6
@@ -71,6 +71,7 @@ static void menu_input(uint16_t p);
 static void settings_input(uint16_t p);
 static int tk_from_lib;                 /* the library was opened from the tracker */
 static void tk_enter(void);
+static void sound_of_target(void);
 static char message[60];
 static int message_timer;
 static int dirty = 1;
@@ -386,7 +387,7 @@ static void load_cursor(void)
     }
     char rel[PATH_MAX_ + NAME_MAX + 2];
     lib_rel(cursor, rel);
-    use_patch(e, &p, ps, rel);
+    if (!use_patch(e, &p, ps, rel) && tk_from_lib) sound_of_target();    /* (choosing for a track: it has it now) */
 }
 
 /* a patch read already (e: LOAD_FM / LOAD_PSG) into the target -> 0, or 1: the wrong kind */
@@ -654,8 +655,7 @@ static void library_input(uint16_t p)
         if (IS_PSG(target)) lib_psg_get(target - PSG_T, &psg_shown);
         part_dirty |= PART_PANEL | PART_LIST;      /* (the marks too) */
     }
-    if ((p & PAD_START) && tk_from_lib) {      /* (an instrument for the tracker) */
-        tk_from_lib = 0;
+    if ((p & PAD_START) && tk_from_lib) {      /* (a sound for a track of the song) */
         tk_enter();
         return;
     }
@@ -1358,7 +1358,7 @@ static void overlay_input(uint16_t p)
 #define NMENU 6
 static const char *const menu_items[NMENU] = { "THE GUIDE: HOW IT ALL WORKS", "SETTINGS",
                                                "MIDI MONITOR: WHAT COMES IN", "RAINBOW VISUALIZER",
-                                               "LOOK FOR PATCHES AGAIN", "SONG TRACKER: WRITE AND RECORD" };
+                                               "LOOK FOR PATCHES AGAIN", "SONGS: RECORD, ARRANGE, EDIT" };
 
 static void draw_menu(void)
 {
@@ -1684,447 +1684,687 @@ static void preview(void)
     }
 }
 
-/* ------------------------------------------------------------ the tracker
+/* ------------------------------------------------------------ the song: arrange and piano roll
  *
  * The song lives on the 68000 (src/md/md_seq.c, src/common/song.h), which
- * also plays it, so the timing does not depend on the drawing. These are its
- * screens: the pattern (rows down, lanes across: each lane one voice, playing
- * the instrument of its part: a MIDI channel as on the home screen), the
- * song page (tempo, the order list) and the menu (files, pattern tools).
+ * plays and records it, so the timing never depends on the drawing. These
+ * are its screens: the ARRANGE view (the 16 tracks across the bars, where
+ * their notes are; the keyboard plays the selected track) and the PIANO
+ * ROLL of a track (its notes as bars: pitch up, time across).
  */
-#define TK_ROWS     18
-#define TK_LANES    7
-#define TK_X        22                  /* the first lane's left edge; 42 pixels a lane */
-#define TK_W        42
-#define TK_Y        43                  /* the first row */
-/* The cursor row: on the 32X all of it lit; the Genesis (which draws
- * slowly) lights only its number and the cursor's cell, so a step of the
- * play position redraws those two places, not two whole rows. */
 #ifdef MD_ONLY
-#define WHOLE_ROW_LIT 0
+#define FAST_SCREEN 0                   /* (the Genesis draws slowly: the playhead only on the ruler) */
 #else
-#define WHOLE_ROW_LIT 1
+#define FAST_SCREEN 1
 #endif
 
-static int tk_lane, tk_ord, tk_row, tk_left, tk_top;
-static int tk_flags, tk_pat, tk_len = 64;
-static uint16_t tk_edits;
-static int tk_step = 1, tk_keys, tk_rec, tk_note = 60, tk_vel = 100;
-static uint8_t tk_ch[SONG_LANES];       /* each lane's MIDI channel (the song's) */
-static uint32_t tk_mute;
-static int tk_bpm = 120, tk_rpb = 4, tk_nord = 1, tk_loop;
-static uint32_t tk_dirty_rows;          /* rows of the window to draw again */
-static uint32_t tk_mark_rows;           /* (the Genesis) rows the cursor left or reached */
-static int tk_bar_dirty;                /* the transport line */
-static int tk_a_down, tk_b_down, tk_c_down, tk_b_used, tk_c_used, tk_heard = -1;
-static int tk_confirm = -1;
-static int ov_dirty;                    /* only the menu over the tracker to draw again */             /* the menu item waiting for a second A */
-static char tk_file[16];                /* the song's file in MIDI_SONGS ("": not saved yet) */
-static int sg_row, sg_pos;              /* the song page: 0-3 a setting, 4 the order list */
+#define AR_X        104                 /* the arrange view: the first column; 6 pixels a beat */
+#define AR_COLW     6
+#define AR_COLS     32
+#define AR_Y        33                  /* the first track; 10 pixels each */
+#define AR_H        10
+#define PR_X        24                  /* the piano roll: 4 pixels a 16th (24 ticks) */
+#define PR_Y        33
+#define PR_H        4                   /* a semitone */
+#define PR_N        42                  /* semitones shown */
+#define PR_W        (SCREEN_W - PR_X)
+#define PR_SPAN     ((uint32_t)PR_W * 6)        /* ticks across */
+
+static int sq_flags, sq_sel, sq_bpm = 120, sq_beats = 4, sq_sflags, sq_cyc_a, sq_cyc_b = 4;
+static uint32_t sq_pos;                 /* the play position (or where it starts) */
+static uint16_t sq_edits;
+static uint8_t tr_kind[SONG_TRACKS], tr_ch[SONG_TRACKS], tr_flags[SONG_TRACKS], tr_quant[SONG_TRACKS];
+static uint32_t ar_t0;                  /* the arrange view's first tick (a bar) */
+static uint32_t pr_t0, pr_cur = 0;      /* the piano roll's first tick, its cursor */
+static int pr_low = 48, pr_note = 60, pr_len = 48, pr_vel = 100;
+static int sq_shown_mark = -1;          /* (where the ruler shows the playhead) */
+static int sq_a_down, sq_b_down, sq_c_down, sq_b_used, sq_c_used, sq_confirm = -1;
+static int ov_dirty;                    /* only the menu over the screen to draw again */
+static int sq_init_done;
+static char sq_file[16];                /* the song's file in MIDI_SONGS ("": not saved yet) */
+static int tk_bar_dirty;                /* the transport line (and the ruler) */
 
 static unsigned sq(int op, int a, int p2, int p3)
 {
     return (unsigned)md_cmd(CMD_SEQ, (uint16_t)(op << 8 | (a & 0xFF)), (uint16_t)p2, (uint16_t)p3);
 }
 
-static int song_byte(int off)
-{
-    sq(SQ_PEEK, 0, off, 0);
-    return md_p(C_P1) >> 8;
-}
-
 static void song_poke(int off, int bytes, int v) { sq(SQ_POKE, bytes, off, v); }
 
-/* a part (MIDI channel) -> the home screen's target, or -1: nothing here plays it */
-static int part_target(int ch)
-{
-    if (ch < 6) return ch;
-    if (ch < 10) return PSG_T + ch - 6;
-#ifndef MD_ONLY
-    if (ch < 14) return PWM_T + ch - 10;
-    if (ch == 15) return DRUMS_T;
-#endif
-    return -1;
-}
-
-static const char *part_label(int ch, char *t)
-{
-    char *o = t;
-    if (ch < 6) { o = put_str(o, "FM "); o = fmt_num(o, ch + 1); }
-    else if (ch < 9) { o = put_str(o, "PSG "); o = fmt_num(o, ch - 5); }
-    else if (ch == 9) o = put_str(o, "NOISE");
-    else if (ch < 14) { o = put_str(o, "32X "); o = fmt_num(o, ch + 1); }
-    else if (ch == 14) o = put_str(o, "OUT 15");
-    else o = put_str(o, "DRUMS");
-    *o = 0;
-    return t;
-}
-
-/* the instrument a part plays now (what the home screen loaded there) */
-static const char *part_sound(int ch)
-{
-    int t = part_target(ch);
-    if (t < 0) return ch == 14 ? "MIDI" : "(32X)";
-    if (t == DRUMS_T) return "KIT";
-    if (IS_PSG(t)) return psg_name[t - PSG_T][0] ? psg_name[t - PSG_T] : "-";
-    int slot = t >= PWM_T ? t - 1 : t;
-    return chan_path[slot][0] ? base_name(chan_path[slot]) : "-";
-}
-
-/* its path inside MIDI_PATCHES, as the song keeps it (0: leave the song's) */
-static const char *part_path(int ch)
-{
-    int t = part_target(ch);
-    if (t < 0 || t == DRUMS_T) return 0;
-    if (IS_PSG(t)) return psg_rel[t - PSG_T];
-    return chan_path[t >= PWM_T ? t - 1 : t];
-}
-
-static void tk_fetch(void)              /* the song's header */
-{
-    sq(SQ_PEEK, 0, SO_VER, 0);          /* version, rows a beat, tempo (2), orders, loop */
-    tk_rpb = md_p(C_P1) & 0xFF;
-    tk_bpm = md_p(C_P2);
-    tk_nord = md_p(C_P3) >> 8;
-    tk_loop = md_p(C_P3) & 0xFF;
-    for (int l = 0; l < SONG_LANES; l += 6) {
-        sq(SQ_PEEK, 0, SO_LANE + l, 0);
-        uint16_t w[3] = { md_p(C_P1), md_p(C_P2), md_p(C_P3) };
-        for (int k = 0; k < 6 && l + k < SONG_LANES; k++)
-            tk_ch[l + k] = (uint8_t)((k & 1 ? w[k >> 1] : w[k >> 1] >> 8) & 15);
-    }
-    sq(SQ_PEEK, 0, SO_MUTE, 0);
-    tk_mute = (uint32_t)md_p(C_P1) << 16 | md_p(C_P2);
-    tk_mute = (tk_mute >> 24 & 0xFF) | (tk_mute >> 8 & 0xFF00) | (tk_mute << 8 & 0xFF0000) | tk_mute << 24;
-}
-
-static void tk_send_cursor(void)
-{
-    int f = SQS_FOLLOW | (tk_keys ? SQS_EDIT : 0);
-    sq(SQ_CURSOR, tk_lane, tk_ord << 8 | tk_row, f | tk_step << 8);
-}
-
-static void tk_scroll(void)             /* the cursor in the window */
-{
-    int old_top = tk_top, old_left = tk_left;
-#ifdef MD_ONLY
-    if (tk_row < tk_top || tk_row >= tk_top + TK_ROWS) tk_top = tk_row - 2;    /* (a page at a time) */
-#else
-    if (tk_row < tk_top + 4) tk_top = tk_row - 4;
-    if (tk_row > tk_top + TK_ROWS - 5) tk_top = tk_row - TK_ROWS + 5;
-#endif
-    if (tk_top > tk_len - TK_ROWS) tk_top = tk_len - TK_ROWS;
-    if (tk_top < 0) tk_top = 0;
-    if (tk_lane < tk_left) tk_left = tk_lane;
-    if (tk_lane >= tk_left + TK_LANES) tk_left = tk_lane - TK_LANES + 1;
-    if (tk_top != old_top) tk_dirty_rows = ~0u;
-    if (tk_left != old_left) dirty = 1;
-}
-
-static void row_dirty(int r)
-{
-    if (r >= tk_top && r < tk_top + TK_ROWS) tk_dirty_rows |= 1u << (r - tk_top);
-}
-
-static void row_moved(int r)            /* the cursor left or reached row r */
-{
-    if (WHOLE_ROW_LIT) row_dirty(r);
-    else if (r >= tk_top && r < tk_top + TK_ROWS) tk_mark_rows |= 1u << (r - tk_top);
-}
-
-/* the 68000's view: where it plays (or its cursor), the pattern, edits */
-static void tk_poll(void)
-{
-    int f = (int)sq(SQ_STATE, 0, 0, 0);
-    int pos = md_p(C_P1), pp = md_p(C_P2);
-    uint16_t ed = md_p(C_P3);
-    if (f != tk_flags) {
-        if ((f & SQS_FULL) && !(tk_flags & SQS_FULL)) say("THE SONG MEMORY IS FULL: NOTES LEFT OUT");
-        if ((f ^ tk_flags) & (SQS_PLAY | SQS_REC)) row_dirty(tk_row);     /* (red while recording) */
-        tk_flags = f;
-        tk_bar_dirty |= 1;
-    }
-    if (ed != tk_edits) {               /* the keyboard (step entry, a take): near the cursor */
-        tk_edits = ed;
-        if (f & SQS_PLAY || tk_keys) { row_dirty(tk_row - 1); row_dirty(tk_row); row_dirty(tk_row + 1); }
-        else tk_dirty_rows = ~0u;
-    }
-    int o = pos >> 8, r = pos & 0xFF, p = pp >> 8, len = pp & 0xFF;
-    if (!len) len = 128;
-    if (o != tk_ord || r != tk_row || p != tk_pat || len != tk_len) {
-        if (p != tk_pat || len != tk_len) tk_dirty_rows = ~0u;
-        tk_bar_dirty |= o != tk_ord || p != tk_pat ? 1 : 2;
-        row_moved(tk_row);
-        tk_ord = o; tk_row = r; tk_pat = p; tk_len = len;
-        tk_scroll();
-        row_moved(tk_row);
-    }
-}
-
-static int tk_get(int *vel)             /* the cell at the cursor: note (0 none) */
-{
-    sq(SQ_ROWS, tk_lane, tk_pat << 8 | tk_row, 1 << 8 | 1);
-    md_cmd(CMD_BUF_GET, BUF_DATA, 0, 0);
-    *vel = md_p(C_P1) & 0xFF;
-    return md_p(C_P1) >> 8;
-}
-
-static void tk_put(int note, int vel)
-{
-    unsigned e = sq(SQ_CELL, tk_lane, tk_pat << 8 | tk_row, note << 8 | vel);
-    if (e) say("THE SONG MEMORY IS FULL");
-    row_dirty(tk_row);
-    sq(SQ_STATE, 0, 0, 0);
-    tk_edits = md_p(C_P3);              /* (drawn already: not all again) */
-}
-
-static void tk_hear(int note, int vel)  /* the note on the lane's part, while A is held */
-{
-    if (tk_heard >= 0) md_cmd(CMD_MIDI, (uint16_t)(3 << 8 | (0x80 | tk_heard >> 8)), (uint16_t)((tk_heard & 0xFF) << 8), 0);
-    tk_heard = -1;
-    if (note <= 0 || note > 127 || (tk_flags & SQS_PLAY)) return;
-    int ch = tk_ch[tk_lane];
-    md_cmd(CMD_MIDI, (uint16_t)(3 << 8 | (0x90 | ch)), (uint16_t)(note << 8 | vel), 0);
-    tk_heard = note | ch << 8;
-}
-
-static void tk_goto(int ord, int row)   /* the cursor (stopped) */
-{
-    if (ord < 0) ord = 0;
-    if (ord >= tk_nord) ord = tk_nord - 1;
-    int len = song_byte(SO_PLEN + song_byte(SO_ORD + ord) % SONG_PATS);
-    if (row >= len) row = len - 1;
-    if (row < 0) row = 0;
-    tk_ord = ord; tk_row = row;
-    tk_send_cursor();
-    tk_poll();
-}
-
-static void tk_move(int d)              /* rows down (up), across the order list */
-{
-    int r = tk_row + d, o = tk_ord;
-    if (r >= tk_len) {
-        if (o + 1 < tk_nord) { o++; r = 0; } else r = tk_len - 1;
-    } else if (r < 0) {
-        if (o > 0) { o--; r = 127; } else r = 0;
-    }
-    tk_goto(o, r);
-}
+static uint32_t bar_len(void) { return (uint32_t)(sq_beats ? sq_beats : 4) * SONG_PPQ; }
 
 static char *put_n(char *o, int v, int digits)  /* zero-padded */
 {
-    char t[4];
+    char t[6];
     for (int i = digits - 1; i >= 0; i--) { t[i] = (char)('0' + v % 10); v /= 10; }
     for (int i = 0; i < digits; i++) *o++ = t[i];
     return o;
 }
 
-static void cell_note(char *t, int n)   /* 3 characters: "C-4", "F#2", "OFF", "---" */
+static void sq_fetch(void)              /* the header and the track heads */
 {
-    static const char nm[] = "C-C#D-D#E-F-F#G-G#A-A#B-";
-    if (!n) { t[0] = t[1] = t[2] = '-'; }
-    else if (n == NOTE_OFF) { t[0] = 'O'; t[1] = t[2] = 'F'; }
-    else {
-        t[0] = nm[n % 12 * 2];
-        t[1] = nm[n % 12 * 2 + 1];
-        t[2] = n < 12 ? '-' : (char)('0' + n / 12 - 1);
+    sq(SQ_PEEK, 0, SO_VER, 0);          /* version, flags, tempo (2), beats, selected */
+    sq_sflags = md_p(C_P1) & 0xFF;
+    sq_bpm = md_p(C_P2);
+    sq_beats = md_p(C_P3) >> 8;
+    sq_sel = md_p(C_P3) & 15;
+    sq(SQ_PEEK, 0, SO_CYC_A, 0);
+    sq_cyc_a = md_p(C_P1);
+    sq_cyc_b = md_p(C_P2);
+    for (int t = 0; t < SONG_TRACKS; t++) {
+        sq(SQ_PEEK, 0, SO_TRACKS + t * TR_BYTES, 0);
+        tr_kind[t] = (uint8_t)(md_p(C_P1) >> 8);
+        tr_ch[t] = (uint8_t)(md_p(C_P1) & 15);
+        tr_flags[t] = (uint8_t)(md_p(C_P2) >> 8);
+        tr_quant[t] = (uint8_t)(md_p(C_P2) & 0xFF);
     }
-    t[3] = 0;
 }
 
-#define TK_ROWNO_X  (34 + 32 * CHAR_W)  /* (where the bar shows the row: "BPM 120  ORD 00/01  PAT 00  ROW ") */
-static void tk_draw_rowno(void)
+static void track_name(int t, char *out)        /* (16 characters at most) */
 {
-    char t[4];
-    *put_n(t, tk_row, 3) = 0;
-    gfx_rect(TK_ROWNO_X, 13, 3 * CHAR_W, 10, COL_BG);
-    gfx_text(TK_ROWNO_X, 14, t, COL_TEXT);
+    for (int i = 0; i < 16; i += 6) {
+        sq(SQ_PEEK, 0, SO_TRACKS + t * TR_BYTES + TR_NAME + i, 0);
+        uint16_t w[3] = { md_p(C_P1), md_p(C_P2), md_p(C_P3) };
+        for (int k = 0; k < 6 && i + k < 16; k++) out[i + k] = (char)(k & 1 ? w[k >> 1] : w[k >> 1] >> 8);
+    }
+    out[16] = 0;
 }
 
-static void tk_draw_bar(void)           /* the transport line */
+static const char *const kind_names[TK_COUNT] = { "FM", "PSG", "NOISE", "32X FM", "DRUMS", "MIDI" };
+static const uint8_t kind_cols[TK_COUNT] = { COL_HEAD, COL_GREEN, COL_GREEN, COL_ORANGE, COL_ORANGE, COL_DIM };
+
+/* a track -> the home screen's target that holds its sound while you choose it (-1: none) */
+static int track_target(int t)
+{
+    switch (tr_kind[t]) {
+    case TK_FM: return 0;
+    case TK_PSG: return PSG_T;
+    case TK_NOISE: return PSG_T + 3;
+#ifndef MD_ONLY
+    case TK_X32: return PWM_T + ((tr_ch[t] - 10) & 3);
+#endif
+    }
+    return -1;
+}
+
+/* ---- sounds: the song keeps each track's (FM: 30 register values, PSG: psg_pack) */
+static int fm_blob(const fm_patch *p, uint8_t *b)
+{
+    uint8_t regs[32][2];
+    int n = patch_regs(p, 0, regs);
+    for (int i = 0; i < n; i++) {
+        int r = regs[i][0];
+        if (r >= 0x30 && r < 0xA0) b[((r - 0x30) >> 4) * 4 + ((r & 0x0C) >> 2)] = regs[i][1];
+        else if (r == 0xB0) b[28] = regs[i][1];
+        else if (r == 0xB4) b[29] = regs[i][1];
+    }
+    return FM_SOUND;
+}
+
+static void blob_patch(const uint8_t *b, fm_patch *p)
+{
+    uint8_t sh[528];
+    memset(sh, 0, sizeof sh);
+    for (int i = 0; i < 28; i++) sh[0x30 + (i >> 2) * 0x10 + (i & 3) * 4] = b[i];
+    sh[0xB0] = b[28];
+    sh[0xB4] = b[29];
+    patch_from_regs(p, 0, sh);
+}
+
+static int put_buf(int at, const uint8_t *b, int n)     /* into the 68000's buffer */
+{
+    for (int off = 0; off < n; off += 4) {
+        uint8_t q[4] = { 0, 0, 0, 0 };
+        for (int k = 0; k < 4 && off + k < n; k++) q[k] = b[off + k];
+        int r = md_cmd(CMD_BUF_PUT, (uint16_t)(at + off), (uint16_t)(q[0] << 8 | q[1]), (uint16_t)(q[2] << 8 | q[3]));
+        if (r) return r;
+    }
+    return 0;
+}
+
+static void track_set_name(int t, const char *name)
+{
+    char nm[16];
+    int k = 0;
+    while (k < 16 && name[k] && name[k] != '.') { nm[k] = name[k]; k++; }
+    while (k < 16) nm[k++] = 0;
+    for (int i = 0; i < 16; i += 2) song_poke(SO_TRACKS + t * TR_BYTES + TR_NAME + i, 2, (uint8_t)nm[i] << 8 | (uint8_t)nm[i + 1]);
+}
+
+/* the sound target t has now (as the library loaded it) -> track k's */
+static void sound_from(int tgt, int k, const char *name)
+{
+    uint8_t b[SOUND_MAX];
+    int n = 0;
+    if (IS_PSG(tgt)) {
+        psg_patch ps;
+        if (lib_psg_get(tgt - PSG_T, &ps)) n = psg_pack(&ps, b);
+    } else {
+        fm_patch p;
+        slot_read(tgt >= PWM_T ? tgt - 1 : tgt, &p);
+        n = fm_blob(&p, b);
+    }
+    put_buf(BUF_DATA, b, n);
+    sq(SQ_SOUND, k, n, 0);
+    if (name) track_set_name(k, name);
+}
+
+static void sound_of_target(void)       /* (the library, choosing for the selected track) */
+{
+    int slot = target >= PWM_T && target < PWM_T + 4 ? target - 1 : target;
+    const char *nm = IS_PSG(target) ? psg_name[target - PSG_T] : chan_path[slot][0] ? base_name(chan_path[slot]) : "";
+    sound_from(target, sq_sel, nm);
+}
+
+/* a new song's tracks: the sounds the home screen has now */
+static void sounds_from_home(void)
+{
+    sq_fetch();
+    int fm = 0, psg = 0;
+    for (int k = 0; k < SONG_TRACKS; k++) {
+        int tgt = -1;
+        if (tr_kind[k] == TK_FM) tgt = fm++ % 6;
+        else if (tr_kind[k] == TK_PSG) tgt = PSG_T + psg++ % 3;
+        else if (tr_kind[k] == TK_NOISE || tr_kind[k] == TK_X32) tgt = track_target(k);
+        if (tgt < 0) continue;
+        int slot = tgt >= PWM_T && tgt < PWM_T + 4 ? tgt - 1 : tgt;
+        const char *nm = IS_PSG(tgt) ? psg_name[tgt - PSG_T] : chan_path[slot][0] ? base_name(chan_path[slot]) : "";
+        sound_from(tgt, k, nm[0] ? nm : 0);
+    }
+}
+
+static void x32_sounds(void)            /* (an opened song: the 32X's FM channels get theirs) */
+{
+#ifndef MD_ONLY
+    uint8_t b[SOUND_MAX];
+    for (int k = 0; k < SONG_TRACKS; k++) {
+        if (tr_kind[k] != TK_X32) continue;
+        int n = (int)sq(SQ_SOUND, k, 0xFFFF, 0);
+        if (n < FM_SOUND) continue;
+        lib_get(BUF_DATA, b, FM_SOUND);
+        fm_patch p;
+        blob_patch(b, &p);
+        synth_set_patch((tr_ch[k] - 10) & 3, &p);
+    }
+#endif
+}
+
+/* ---- the state: where the 68000 plays */
+static void sq_poll(void)
+{
+    int f = (int)sq(SQ_STATE, 0, 0, 0);
+    uint32_t pos = (uint32_t)md_p(C_P1) << 16 | md_p(C_P2);
+    uint16_t ed = md_p(C_P3);
+    if ((f & SQS_FULL) && !(sq_flags & SQS_FULL)) say("THE SONG MEMORY IS FULL: NOTES LEFT OUT");
+    if (f != sq_flags) { sq_flags = f; tk_bar_dirty = 1; }
+    if (pos / 24 != sq_pos / 24) tk_bar_dirty = 1;
+    sq_pos = pos;
+    if (ed != sq_edits) { sq_edits = ed; dirty = 1; }
+    /* the view follows the playhead */
+    if (screen == SCR_ARRANGE) {
+        uint32_t span = (uint32_t)AR_COLS * SONG_PPQ;
+        if (pos < ar_t0 || pos >= ar_t0 + span) { ar_t0 = pos / bar_len() * bar_len(); dirty = 1; }
+        if (FAST_SCREEN && (sq_flags & SQS_PLAY) && (int)(pos / SONG_PPQ) != sq_shown_mark) dirty = 1;
+    } else if (screen == SCR_ROLL && (sq_flags & SQS_PLAY)) {
+        if (pos < pr_t0 || pos >= pr_t0 + PR_SPAN - 24) { pr_t0 = pos / bar_len() * bar_len(); dirty = 1; }
+        if (FAST_SCREEN && (int)(pos / 24) != sq_shown_mark) dirty = 1;
+    }
+}
+
+static void pos_text(char *o, uint32_t t)       /* "BAR 003.2" */
+{
+    uint32_t bar = t / bar_len(), beat = t % bar_len() / SONG_PPQ;
+    o = put_str(o, "BAR ");
+    o = put_n(o, (int)(bar + 1), 3);
+    *o++ = '.';
+    o = fmt_num(o, (int)beat + 1);
+    *o = 0;
+}
+
+static void sq_draw_bar(void)           /* the transport line */
 {
     char t[64], *o = t;
-    int f = tk_flags;
+    int f = sq_flags;
     gfx_rect(0, 13, SCREEN_W, 10, COL_BG);
-    const char *st = (f & SQS_PLAY) ? ((f & SQS_REC) ? "REC " : "PLAY") : "STOP";
-    gfx_text(4, 14, st, (f & SQS_REC) && (f & SQS_PLAY) ? COL_RED : (f & SQS_PLAY) ? COL_GREEN : COL_DIM);
-    o = put_str(o, "BPM "); o = put_n(o, tk_bpm, 3);
-    o = put_str(o, "  ORD "); o = put_n(o, tk_ord, 2); *o++ = '/'; o = put_n(o, tk_nord, 2);
-    o = put_str(o, "  PAT "); o = put_n(o, tk_pat, 2);
-    o = put_str(o, "  ROW ");
-    *o = 0;
-    gfx_text(34, 14, t, COL_TEXT);
-    tk_draw_rowno();
-    o = t;
-    if (tk_keys) { o = put_str(o, "KEYS+"); o = fmt_num(o, tk_step); *o++ = ' '; }
-    if (tk_rec) o = put_str(o, "REC");
-    *o = 0;
-    gfx_text(SCREEN_W - 4 - (int)strlen(t) * CHAR_W, 14, t, tk_rec ? COL_RED : COL_HI);
-}
-
-static void tk_draw_lanes(void)         /* the lanes' heads: the part, its instrument */
-{
-    char t[12];
-    gfx_rect(0, 23, SCREEN_W, 19, COL_PANEL);
-    for (int i = 0; i < TK_LANES; i++) {
-        int l = tk_left + i, x = TK_X + i * TK_W;
-        if (l >= SONG_LANES) break;
-        int ch = tk_ch[l], m = tk_mute >> l & 1;
-        if (l == tk_lane) gfx_rect(x - 2, 23, TK_W - 2, 19, COL_CURSOR);
-        uint8_t col = m ? COL_RED : ch >= 10 && ch != 14 ? COL_ORANGE : ch >= 6 && ch < 10 ? COL_GREEN : COL_HEAD;
-        gfx_text(x, 24, part_label(ch, t), col);
-        if (m) gfx_text(x + 30, 24, "M", COL_RED);
-        gfx_text_n(x, 33, part_sound(ch), 6, l == tk_lane ? COL_HI : COL_DIM);
+    const char *st = (f & SQS_COUNTIN) ? "1 2 3 4" : (f & SQS_REC) ? "REC" : (f & SQS_PLAY) ? "PLAY" : "STOP";
+    gfx_text(4, 14, st, (f & SQS_REC) ? COL_RED : (f & SQS_PLAY) ? COL_GREEN : COL_DIM);
+    pos_text(o, sq_pos);
+    o += strlen(o);
+    o = put_str(o, "  ");
+    o = fmt_num(o, sq_bpm);
+    o = put_str(o, " BPM  ");
+    o = fmt_num(o, sq_beats);
+    o = put_str(o, "/4");
+    if (sq_sflags & SF_CYCLE) {
+        o = put_str(o, "  CYCLE ");
+        o = fmt_num(o, sq_cyc_a + 1);
+        *o++ = '-';
+        o = fmt_num(o, sq_cyc_b);
     }
-    if (tk_left) gfx_text(2, 24, "<", COL_DIM);         /* (more lanes each side) */
-    if (tk_left + TK_LANES < SONG_LANES) gfx_text(2, 33, ">", COL_DIM);
+    *o = 0;
+    gfx_text(52, 14, t, COL_TEXT);
 }
 
-
-static uint8_t row_bg(int r, int lit)
+/* the ruler: bar numbers, the cycle, the playhead's mark */
+static void sq_draw_ruler(int x0, int w, uint32_t t0, int px_per_bar)
 {
-    if (lit) return (tk_flags & SQS_REC) && (tk_flags & SQS_PLAY) ? COL_RED : COL_PANEL2;
-    return (tk_rpb && r % tk_rpb == 0) ? COL_PANEL : COL_BG;
+    char t[6];
+    gfx_rect(0, 23, SCREEN_W, 9, COL_PANEL);
+    uint32_t bl = bar_len();
+    for (int b = 0; ; b++) {
+        int x = x0 + b * px_per_bar;
+        if (x >= x0 + w) break;
+        gfx_vspan(x, 23, 31, COL_LINE);
+        *fmt_num(t, (int)(t0 / bl) + b + 1) = 0;
+        if (x + 2 + (int)strlen(t) * CHAR_W <= x0 + w) gfx_text(x + 2, 23, t, COL_DIM);
+    }
+    if (sq_sflags & SF_CYCLE) {
+        int a = x0 + (int)(((int32_t)(sq_cyc_a * bl) - (int32_t)t0) * px_per_bar / (int32_t)bl);
+        int b = x0 + (int)(((int32_t)(sq_cyc_b * bl) - (int32_t)t0) * px_per_bar / (int32_t)bl);
+        if (a < x0) a = x0;
+        if (b > x0 + w) b = x0 + w;
+        if (b > a) gfx_rect(a, 30, b - a, 2, COL_ORANGE);
+    }
+    if (sq_pos >= t0) {
+        int x = x0 + (int)((sq_pos - t0) * (uint32_t)px_per_bar / bl);
+        if (x < x0 + w) gfx_rect(x - 1, 23, 3, 9, (sq_flags & SQS_REC) ? COL_RED : COL_GREEN);
+    }
 }
 
-static void draw_cell(int k, int y, int note, int vel, int here, uint8_t bg)
+/* ---- the arrange view */
+static void ar_row(int k, const uint8_t *bits)
+{
+    char t[20], nm[17];
+    int y = AR_Y + k * AR_H, sel = k == sq_sel;
+    gfx_rect(0, y, AR_X - 2, AR_H, sel ? COL_CURSOR : COL_BG);
+    gfx_rect(AR_X - 2, y, SCREEN_W - AR_X + 2, AR_H, sel ? COL_PANEL : COL_BG);
+    *put_n(t, k + 1, 2) = 0;
+    gfx_text(2, y + 1, t, sel ? COL_HI : COL_DIM);
+    track_name(k, nm);
+    gfx_text_n(16, y + 1, nm[0] ? nm : kind_names[tr_kind[k] % TK_COUNT], 12, sel ? COL_HI : kind_cols[tr_kind[k] % TK_COUNT]);
+    if (tr_flags[k] & TF_MUTE) gfx_text(92, y + 1, "M", COL_RED);
+    else if (tr_flags[k] & TF_SOLO) gfx_text(92, y + 1, "S", COL_HI);
+    for (int c = 0; c < AR_COLS; c++) {
+        int x = AR_X + c * AR_COLW;
+        if ((uint32_t)c % (uint32_t)(sq_beats ? sq_beats : 4) == 0) gfx_vspan(x, y, y + AR_H - 1, COL_LINE);
+        if (bits[k * 4 + c / 8] >> (c & 7) & 1)
+            gfx_rect(x + 1, y + 2, AR_COLW - 1, AR_H - 4, (tr_flags[k] & TF_MUTE) ? COL_DIM : kind_cols[tr_kind[k] % TK_COUNT]);
+    }
+}
+
+static void ar_info(void)               /* the selected track, under the list */
+{
+    char t[64], *o = t;
+    int k = sq_sel;
+    static const char *const qn[Q_COUNT] = { "OFF", "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" };
+    o = put_str(o, "TRACK ");
+    o = fmt_num(o, k + 1);
+    o = put_str(o, ": ");
+    o = put_str(o, kind_names[tr_kind[k] % TK_COUNT]);
+    o = put_str(o, "  MIDI CH ");
+    o = fmt_num(o, tr_ch[k] + 1);
+    o = put_str(o, "  QUANTIZE ");
+    o = put_str(o, qn[tr_quant[k] % Q_COUNT]);
+    *o = 0;
+    gfx_rect(0, 196, SCREEN_W, 12, COL_BG);
+    gfx_text(4, 198, t, COL_DIM);
+}
+
+static void draw_arrange(void)
+{
+    uint8_t bits[SONG_TRACKS * 4];
+    char t[40] = "SONG: ";
+    gfx_clear(COL_BG);
+    strcat(t, sq_file[0] ? sq_file : "NEW");
+    header(t);
+    sq_draw_bar();
+    sq_shown_mark = (int)(sq_pos / SONG_PPQ);
+    sq_draw_ruler(AR_X, AR_COLS * AR_COLW, ar_t0, AR_COLW * (sq_beats ? sq_beats : 4));
+    sq(SQ_OVERVIEW, 0, (int)(ar_t0 / 24), 4);
+    lib_get(BUF_DATA, bits, sizeof bits);
+    for (int k = 0; k < SONG_TRACKS; k++) ar_row(k, bits);
+    if (FAST_SCREEN && sq_pos >= ar_t0 && sq_pos < ar_t0 + (uint32_t)AR_COLS * SONG_PPQ)
+        gfx_vspan(AR_X + (int)((sq_pos - ar_t0) * AR_COLW / SONG_PPQ), AR_Y, AR_Y + SONG_TRACKS * AR_H - 1,
+                  (sq_flags & SQS_REC) ? COL_RED : COL_GREEN);
+    ar_info();
+    footer((sq_flags & SQS_PLAY) ? "START STOP  UP/DN TRACK  L/R A BAR  C MENU"
+                                 : "START PLAY  X RECORD  A PIANO ROLL  Y SOUND  C MENU");
+    tk_bar_dirty = 0;
+}
+
+static void ar_redraw_rows(int a, int b)        /* (the selection moved) */
+{
+    uint8_t bits[SONG_TRACKS * 4];
+    sq(SQ_OVERVIEW, 0, (int)(ar_t0 / 24), 4);
+    lib_get(BUF_DATA, bits, sizeof bits);
+    ar_row(a, bits);
+    if (b != a) ar_row(b, bits);
+    ar_info();
+}
+
+/* ---- the piano roll */
+static int is_black(int n) { return (0x54A >> (n % 12)) & 1; }
+
+static void pr_row_bg(int r)            /* row r (0: the lowest note shown) */
+{
+    int n = pr_low + r, y = PR_Y + (PR_N - 1 - r) * PR_H;
+    gfx_rect(PR_X, y, PR_W, PR_H, is_black(n) ? COL_PANEL : COL_BG);
+    if (n % 12 == 0) gfx_rect(PR_X, y + PR_H - 1, PR_W, 1, COL_LINE);
+    gfx_rect(0, y, PR_X - 1, PR_H, is_black(n) ? COL_PANEL2 : COL_TEXT);
+}
+
+static void pr_keys_text(void)
 {
     char t[4];
-    int x = TK_X + k * TK_W;
-    gfx_rect(x - 2, y, TK_W - 4, CHAR_H, here ? COL_CURSOR : bg);
-    if (!note) {                        /* (empty: a dot, little to draw) */
-        gfx_text(x + 6, y + 1, "-", here ? COL_HI : COL_LINE);
+    for (int r = 0; r < PR_N; r++) {
+        int n = pr_low + r;
+        if (n % 12) continue;
+        t[0] = 'C';
+        t[1] = n < 12 ? '-' : (char)('0' + n / 12 - 1);
+        t[2] = 0;
+        int y = PR_Y + (PR_N - 1 - r) * PR_H - 5;
+        if (y >= PR_Y) gfx_text(2, y, t, COL_BG);
+    }
+}
+
+/* the notes in view: for each, its box (and whether the cursor is on it) */
+typedef void (*note_fn)(int idx, uint32_t tick, int note, int vel, int dur);
+
+static int pr_notes(uint32_t t0, uint32_t span, note_fn fn)
+{
+    sq(SQ_NOTES, sq_sel, (int)(t0 / 24), (int)((span + 23) / 24));
+    uint8_t h[2];
+    lib_get(BUF_DATA, h, 2);
+    int n = h[0] << 8 | h[1];
+    for (int i = 0; i < n; i++) {
+        uint8_t r[NOTE_REC + 1];
+        lib_get(BUF_DATA + 2 + i * NOTE_REC, r, NOTE_REC);
+        fn(r[0] << 8 | r[1], (uint32_t)r[2] << 16 | (uint32_t)r[3] << 8 | r[4], r[5], r[6], r[7] << 8 | r[8]);
+    }
+    return n;
+}
+
+static int pr_sel_idx = -1, pr_sel_vel, pr_sel_dur;
+static uint32_t pr_sel_tick;
+
+static void note_box(int idx, uint32_t tick, int note, int vel, int dur)
+{
+    if (note < pr_low || note >= pr_low + PR_N) return;
+    int32_t x0 = PR_X + ((int32_t)tick - (int32_t)pr_t0) / 6, x1 = PR_X + ((int32_t)(tick + (uint32_t)dur) - (int32_t)pr_t0) / 6;
+    if (x1 <= x0) x1 = x0 + 1;
+    if (x0 < PR_X) x0 = PR_X;
+    if (x1 > SCREEN_W) x1 = SCREEN_W;
+    if (x1 <= x0) return;
+    int y = PR_Y + (PR_N - 1 - (note - pr_low)) * PR_H;
+    uint8_t c = idx == pr_sel_idx ? COL_HI : (idx & 0x8000) || (vel & 0x80) ? COL_GREEN : vel >= 96 ? COL_ORANGE : COL_HEAD;
+    gfx_rect((int)x0, y, (int)(x1 - x0), PR_H - 1, c);
+    if (x1 - x0 > 2) gfx_rect((int)x0, y, 1, PR_H - 1, COL_BG);    /* (where it starts) */
+}
+
+static void find_sel(int idx, uint32_t tick, int note, int vel, int dur)
+{
+    if (note != pr_note || idx & 0x8000) return;
+    if (pr_sel_idx < 0 || tick > pr_sel_tick) {         /* (the latest under the cursor) */
+        pr_sel_idx = idx; pr_sel_tick = tick; pr_sel_vel = vel & 0x7F; pr_sel_dur = dur;
+    }
+}
+
+static void pr_select(void)             /* the note under the cursor (-1: none) */
+{
+    pr_sel_idx = -1;
+    pr_notes(pr_cur, 24, find_sel);
+}
+
+static void pr_cursor_box(void)
+{
+    if (pr_note < pr_low || pr_note >= pr_low + PR_N || pr_cur < pr_t0 || pr_cur >= pr_t0 + PR_SPAN) return;
+    int x = PR_X + (int)((pr_cur - pr_t0) / 6), y = PR_Y + (PR_N - 1 - (pr_note - pr_low)) * PR_H;
+    if (pr_sel_idx < 0) gfx_frame(x, y - 1, 4, PR_H + 1, COL_HI);
+}
+
+
+static int pr_only = -1;                /* (note_box: only this note's row, -1: all) */
+static void note_box_f(int idx, uint32_t tick, int note, int vel, int dur)
+{
+    if (pr_only < 0 || note == pr_only) note_box(idx, tick, note, vel, dur);
+}
+
+static void pr_beats(int y0, int y1)
+{
+    for (uint32_t b = 0; ; b++) {
+        int x = PR_X + (int)(b * SONG_PPQ / 6);
+        if (x >= SCREEN_W) break;
+        gfx_vspan(x, y0, y1, (b * SONG_PPQ + pr_t0) % bar_len() ? COL_PANEL2 : COL_LINE);
+    }
+}
+
+static void pr_line(void)               /* under the roll: the cursor or the chosen note */
+{
+    char t[64], *o = t;
+    static const char nm[] = "C-C#D-D#E-F-F#G-G#A-A#B-";
+    *o++ = nm[pr_note % 12 * 2]; *o++ = nm[pr_note % 12 * 2 + 1]; o = fmt_num(o, pr_note / 12 - 1);
+    *o++ = ' ';
+    pos_text(o, pr_sel_idx >= 0 ? pr_sel_tick : pr_cur);
+    o += strlen(o);
+    if (pr_sel_idx >= 0) {
+        o = put_str(o, "  VELOCITY ");
+        o = fmt_num(o, pr_sel_vel);
+        o = put_str(o, "  LENGTH ");
+        o = fmt_num(o, pr_sel_dur / 6);
+        o = put_str(o, "/16");
+    }
+    *o = 0;
+    gfx_rect(0, PR_Y + PR_N * PR_H, SCREEN_W, 212 - (PR_Y + PR_N * PR_H), COL_BG);
+    gfx_text(4, PR_Y + PR_N * PR_H + 2, t, COL_TEXT);
+    footer(pr_sel_idx >= 0 ? "HOLD A: MOVE IT  HOLD B: LENGTH, VELOCITY  B: DELETE"
+                           : "A: A NOTE HERE  X/Y: NEXT/LAST NOTE  C: BACK");
+}
+
+static void draw_roll(void)
+{
+    char t[48], nm[17], *o;
+    gfx_clear(COL_BG);
+    track_name(sq_sel, nm);
+    o = put_str(t, "TRACK ");
+    o = fmt_num(o, sq_sel + 1);
+    o = put_str(o, ": ");
+    strcpy(o, nm[0] ? nm : kind_names[tr_kind[sq_sel] % TK_COUNT]);
+    header(t);
+    sq_draw_bar();
+    sq_shown_mark = (int)(sq_pos / 24);
+    sq_draw_ruler(PR_X, PR_W, pr_t0, (int)(bar_len() / 6));
+    for (int r = 0; r < PR_N; r++) pr_row_bg(r);
+    pr_beats(PR_Y, PR_Y + PR_N * PR_H - 1);
+    pr_keys_text();
+    pr_select();
+    pr_only = -1;
+    pr_notes(pr_t0, PR_SPAN, note_box_f);
+    pr_cursor_box();
+    if (FAST_SCREEN && sq_pos >= pr_t0 && sq_pos < pr_t0 + PR_SPAN)
+        gfx_vspan(PR_X + (int)((sq_pos - pr_t0) / 6), PR_Y, PR_Y + PR_N * PR_H - 1, (sq_flags & SQS_REC) ? COL_RED : COL_GREEN);
+    pr_line();
+    tk_bar_dirty = 0;
+}
+
+static int sq_present;                  /* (drawn in part: to the screen) */
+
+static void pr_redraw_note_rows(int n1, int n2) /* the rows of two notes (the cursor moved) */
+{
+    int ns[2] = { n1, n2 };
+    pr_select();
+    for (int k = 0; k < 2; k++) {
+        int n = ns[k];
+        if (n < pr_low || n >= pr_low + PR_N || (k == 1 && n == n1)) continue;
+        int r = n - pr_low, y = PR_Y + (PR_N - 1 - r) * PR_H;
+        pr_row_bg(r);
+        pr_beats(y, y + PR_H - 1);
+        pr_only = n;
+        pr_notes(pr_t0, PR_SPAN, note_box_f);
+        pr_only = -1;
+        if (n % 12 == 0) { char t[4] = { 'C', n < 12 ? '-' : (char)('0' + n / 12 - 1), 0, 0 }; if (y - 5 >= PR_Y) gfx_text(2, y - 5, t, COL_BG); }
+        if (n % 12 == 11 && y + PR_H - 1 >= PR_Y) {     /* (the C below's name reaches up here) */
+            int yc = y + PR_H;
+            char t[4] = { 'C', n + 1 < 12 ? '-' : (char)('0' + (n + 1) / 12 - 1), 0, 0 };
+            if (n + 1 < pr_low + PR_N) gfx_text(2, yc - 5, t, COL_BG);
+        }
+    }
+    pr_cursor_box();
+    pr_line();
+    sq_present = 1;
+}
+
+/* ---- editing a note: BUF_DATA = track, tick (3), note, velocity, length (2) */
+static int note_put(int op, int idx, uint32_t tick, int note, int vel, int dur)
+{
+    uint8_t b[8] = { (uint8_t)sq_sel, (uint8_t)(tick >> 16), (uint8_t)(tick >> 8), (uint8_t)tick,
+                     (uint8_t)note, (uint8_t)vel, (uint8_t)(dur >> 8), (uint8_t)dur };
+    put_buf(BUF_DATA, b, 8);
+    unsigned e = sq(op, 0, idx, 0);
+    if (e) { say("THE SONG MEMORY IS FULL"); return -1; }
+    sq(SQ_STATE, 0, 0, 0);
+    sq_edits = md_p(C_P3);              /* (drawn here: not all again for it) */
+    return 0;
+}
+
+static int sq_heard = -1;
+static void hear(int note, int vel)     /* a note on the track's sound while A is held */
+{
+    if (sq_heard >= 0) { sq(SQ_KEY, 0, 0x8000 | sq_heard, 0); sq_heard = -1; }
+    if (note <= 0 || (sq_flags & SQS_PLAY)) return;
+    sq(SQ_KEY, 0, 0x9000 | note, vel);
+    sq_heard = note;
+}
+
+/* ---- the screens' moves */
+static void roll_view(void)             /* the cursor in view (else the view jumps) */
+{
+    int again = 0;
+    if (pr_cur < pr_t0 || pr_cur >= pr_t0 + PR_SPAN - 24) { pr_t0 = pr_cur / bar_len() * bar_len(); again = 1; }
+    if (pr_note < pr_low) { pr_low = pr_note - pr_note % 12; again = 1; }
+    if (pr_note >= pr_low + PR_N) { pr_low = pr_note - PR_N + 12 - pr_note % 12; if (pr_low > 127 - PR_N + 1) pr_low = 128 - PR_N; again = 1; }
+    if (pr_low < 0) pr_low = 0;
+    if (again) dirty = 1;
+}
+
+static uint32_t nb_best;
+static int nb_note, nb_dir;
+static void near_note(int idx, uint32_t tick, int note, int vel, int dur)
+{
+    (void)idx; (void)vel; (void)dur;
+    uint32_t c = pr_cur + (nb_dir > 0 ? 23 : 0);
+    if (nb_dir > 0 ? (tick > c && (nb_note < 0 || tick < nb_best)) : (tick < pr_cur && (nb_note < 0 || tick > nb_best))) {
+        nb_best = tick;
+        nb_note = note;
+    }
+}
+
+static void roll_jump(int dir)          /* X / Y: the next or the last note */
+{
+    nb_note = -1;
+    nb_dir = dir;
+    uint32_t span = 16 * bar_len();
+    if (dir > 0) pr_notes(pr_cur, span, near_note);
+    else pr_notes(pr_cur > span ? pr_cur - span : 0, pr_cur > span ? span : pr_cur, near_note);
+    if (nb_note < 0) { say(dir > 0 ? "NO MORE NOTES AFTER THIS" : "NO NOTES BEFORE THIS"); return; }
+    int old = pr_note;
+    pr_cur = nb_best / 24 * 24;
+    pr_note = nb_note;
+    roll_view();
+    if (!dirty) pr_redraw_note_rows(old, pr_note);
+}
+
+static void transport(int rec)
+{
+    if (sq_flags & SQS_PLAY) sq(SQ_STOP, 0, 0, 0);
+    else sq(SQ_PLAY, 0, 0, rec);
+    sq_poll();
+    tk_bar_dirty = 1;
+    dirty = 1;
+}
+
+static void roll_input(uint16_t p)
+{
+    int a = (held_now & PAD_A) != 0, b = (held_now & PAD_B) != 0, c = (held_now & PAD_C) != 0;
+    int a_edge = a && !sq_a_down, b_edge = b && !sq_b_down, b_up = !b && sq_b_down;
+    int c_edge = c && !sq_c_down, c_up = !c && sq_c_down;
+    sq_a_down = a; sq_b_down = b; sq_c_down = c;
+    if (b_edge) sq_b_used = 0;
+    if (c_edge) sq_c_used = 0;
+    int dx = (p & PAD_RIGHT) ? 1 : (p & PAD_LEFT) ? -1 : 0, dy = (p & PAD_UP) ? 1 : (p & PAD_DOWN) ? -1 : 0;
+    if (a) {                            /* A held: a note (a new one on an empty place), moved */
+        if (a_edge) {
+            pr_select();
+            if (pr_sel_idx < 0) {
+                if (note_put(SQ_ADD, 0, pr_cur, pr_note, pr_vel, pr_len)) return;
+                pr_select();
+                pr_redraw_note_rows(pr_note, pr_note);
+            }
+            hear(pr_note, pr_sel_vel ? pr_sel_vel : pr_vel);
+        } else if ((dx || dy) && pr_sel_idx >= 0) {
+            int32_t t = (int32_t)pr_sel_tick + dx * 24;
+            int n = pr_note + dy;
+            if (t < 0 || n < 0 || n > 127) return;
+            if (note_put(SQ_SET, pr_sel_idx, (uint32_t)t, n, pr_sel_vel, pr_sel_dur)) return;
+            int old = pr_note;
+            pr_cur = (uint32_t)t / 24 * 24;
+            pr_note = n;
+            roll_view();
+            if (!dirty) pr_redraw_note_rows(old, n);
+            hear(n, pr_sel_vel);
+        }
         return;
     }
-    cell_note(t, note);
-    gfx_text(x, y + 1, t, here ? COL_HI : note == NOTE_OFF ? COL_RED : COL_TEXT);
-    if (note != NOTE_OFF) {
-        static const char hx[] = "0123456789ABCDEF";
-        t[0] = hx[vel >> 4 & 7]; t[1] = hx[vel & 15]; t[2] = 0;
-        gfx_text(x + 21, y + 1, t, here ? COL_HI : COL_DIM);
+    if (sq_heard >= 0) hear(0, 0);
+    if (b) {                            /* B held: its length (left/right), velocity (up/down) */
+        if ((dx || dy) && pr_sel_idx >= 0) {
+            sq_b_used = 1;
+            int dur = pr_sel_dur + dx * 24, vel = pr_sel_vel + dy * 8;
+            if (dur < 6) dur = 6;
+            if (vel < 1) vel = 1;
+            if (vel > 127) vel = 127;
+            if (note_put(SQ_SET, pr_sel_idx, pr_sel_tick, pr_note, vel, dur)) return;
+            pr_len = dur;
+            pr_vel = vel;
+            pr_redraw_note_rows(pr_note, pr_note);
+        }
+        return;
+    }
+    if (b_up && !sq_b_used && pr_sel_idx >= 0) {        /* B alone: away with it */
+        sq(SQ_DEL, 0, pr_sel_idx, 0);
+        sq(SQ_STATE, 0, 0, 0);
+        sq_edits = md_p(C_P3);
+        pr_redraw_note_rows(pr_note, pr_note);
+        return;
+    }
+    if (c) {                            /* C held: up/down an octave, left/right a bar */
+        if (dx || dy) {
+            sq_c_used = 1;
+            int old = pr_note;
+            if (dy) { pr_note += dy * 12; if (pr_note < 0) pr_note += 12; if (pr_note > 127) pr_note -= 12; }
+            if (dx < 0) pr_cur = pr_cur >= bar_len() ? pr_cur - bar_len() : 0;
+            if (dx > 0) pr_cur += bar_len();
+            roll_view();
+            if (!dirty) pr_redraw_note_rows(old, pr_note);
+        }
+        return;
+    }
+    if (c_up && !sq_c_used) { screen = SCR_ARRANGE; dirty = 1; return; }
+    if (p & PAD_START) { transport(0); return; }
+    if (p & PAD_X) { roll_jump(1); return; }
+    if (p & PAD_Y) { roll_jump(-1); return; }
+    if (dx || dy) {
+        int old = pr_note;
+        if (dx < 0) pr_cur = pr_cur >= 24 ? pr_cur - 24 : 0;
+        if (dx > 0) pr_cur += 24;
+        pr_note += dy;
+        if (pr_note < 0) pr_note = 0;
+        if (pr_note > 127) pr_note = 127;
+        roll_view();
+        if (!dirty) pr_redraw_note_rows(old, pr_note);
     }
 }
 
-static void draw_rowno(int r, int y, int cur)
-{
-    char t[4];
-    *put_n(t, r, 3) = 0;
-    if (!WHOLE_ROW_LIT) gfx_rect(0, y, TK_X - 2, CHAR_H, row_bg(r, cur));
-    gfx_text(2, y + 1, t, cur ? COL_HI : COL_DIM);
-}
-
-static void tk_draw_rows(uint32_t mask)
-{
-    uint8_t c[TK_ROWS * TK_LANES * 2];
-    int first = 0, last = TK_ROWS - 1;
-    while (first < TK_ROWS && !(mask >> first & 1)) first++;
-    while (last >= first && !(mask >> last & 1)) last--;
-    if (first > last) return;
-    int n = last - first + 1;
-    sq(SQ_ROWS, tk_left, tk_pat << 8 | (tk_top + first), n << 8 | TK_LANES);
-    lib_get(BUF_DATA, c, n * TK_LANES * 2);
-    for (int i = first; i <= last; i++) {
-        if (!(mask >> i & 1)) continue;
-        int r = tk_top + i, y = TK_Y + i * CHAR_H;
-        int cur = r == tk_row;
-        uint8_t bg = row_bg(r, cur && WHOLE_ROW_LIT);
-        gfx_rect(0, y, SCREEN_W, CHAR_H, bg);
-        if (r >= tk_len) continue;
-        draw_rowno(r, y, cur);
-        const uint8_t *row = c + (i - first) * TK_LANES * 2;
-        for (int k = 0; k < TK_LANES && tk_left + k < SONG_LANES; k++)
-            draw_cell(k, y, row[k * 2], row[k * 2 + 1], cur && tk_left + k == tk_lane, bg);
-    }
-}
-
-static void tk_draw_marks(uint32_t mask)        /* (the Genesis: the cursor moved) */
-{
-    for (int i = 0; i < TK_ROWS; i++) {
-        if (!(mask >> i & 1)) continue;
-        int r = tk_top + i, y = TK_Y + i * CHAR_H, k = tk_lane - tk_left;
-        if (r >= tk_len) continue;
-        int cur = r == tk_row;
-        draw_rowno(r, y, cur);
-        sq(SQ_ROWS, tk_lane, tk_pat << 8 | r, 1 << 8 | 1);
-        md_cmd(CMD_BUF_GET, BUF_DATA, 0, 0);
-        draw_cell(k, y, md_p(C_P1) >> 8, md_p(C_P1) & 0xFF, cur, row_bg(r, 0));
-    }
-}
-
-static void draw_tracker(void)
-{
-    gfx_clear(COL_BG);
-    char t[40] = "SONG: ";
-    strcat(t, tk_file[0] ? tk_file : "NEW");
-    header(t);
-    tk_draw_bar();
-    tk_draw_lanes();
-    tk_draw_rows(~0u);
-    footer(tk_rec ? "START REC+PLAY  A NOTE  B CLEAR  C MENU  X REC OFF"
-                  : "START PLAY  A NOTE  B CLEAR  A+B OFF  C MENU");
-    tk_dirty_rows = 0;
-    tk_bar_dirty = 0;
-}
-
-static void tk_draw_parts(void)         /* only what changed */
-{
-    if (tk_bar_dirty & 1) tk_draw_bar();
-    else if (tk_bar_dirty) tk_draw_rowno();
-    tk_draw_rows(tk_dirty_rows);
-    tk_draw_marks(tk_mark_rows & ~tk_dirty_rows);
-    tk_dirty_rows = tk_mark_rows = 0;
-    tk_bar_dirty = 0;
-}
-
-/* the instruments a song names: into their channels, as if chosen at home */
-static int use_patch(int e, fm_patch *p, psg_patch *ps, const char *rel);
-static int tk_load_parts(void)          /* -> how many could not be read */
-{
-    int keep = target, bad = 0;
-    char rel[PATH_MAX_ + NAME_MAX + 2];
-    for (int ch = 0; ch < SONG_PARTS; ch++) {
-        int t = part_target(ch);
-        if (t < 0) continue;
-        sq(SQ_PATH, ch, 0, 0);
-        lib_get_str(BUF_NAME, rel, sizeof rel);
-        if (!rel[0]) continue;
-        if (t == DRUMS_T) { synth_load_drums(rel); continue; }
-        fm_patch p;
-        int e = lib_load_path(rel, &p, &psg_shown);
-        target = t;
-        if (e == LOAD_FM || e == LOAD_PSG) { if (use_patch(e, &p, &psg_shown, rel)) bad++; }
-        else bad++;
-    }
-    target = keep;
-    slot_read(shown_ch(), &voice);
-    if (IS_PSG(target)) lib_psg_get(target - PSG_T, &psg_shown);
-    return bad;
-}
-
-static void tk_enter(void)
-{
-    if (settings[SET_MODE]) {           /* (each part its own channel) */
-        settings[SET_MODE] = (uint8_t)md_cmd(CMD_SETTING, SET_MODE, 0, 0);
-        say("THE TRACKER PLAYS IN GENMDM MODE");
-    }
-    screen = SCR_TRACKER;
-    tk_from_lib = 0;
-    tk_fetch();
-    tk_send_cursor();
-    tk_poll();
-    tk_scroll();
-    dirty = 1;
-}
-
-static void tk_leave(void)              /* back home: the keyboard plays as before */
-{
-    tk_hear(0, 0);
-    sq(SQ_CURSOR, tk_lane, tk_ord << 8 | tk_row, tk_step << 8);
-    screen = SCR_LIBRARY;
-    dirty = 1;
-}
-
-/* the songs in MIDI_SONGS, listed instead of the patches for a moment */
+/* ---- the songs in MIDI_SONGS, listed instead of the patches for a moment */
 static int sl_pick, sl_top;
 static int songs_list(void)
 {
@@ -2145,7 +2385,7 @@ static void patches_again(void)         /* (the patch list as it was) */
     if (top > cursor) top = cursor;
 }
 
-static void tk_new_name(char *out, const char *ext)
+static void sq_new_name(char *out, const char *ext)
 {
     for (int n = 1; n < 1000; n++) {
         char *o = put_str(out, "song");
@@ -2156,62 +2396,57 @@ static void tk_new_name(char *out, const char *ext)
     }
 }
 
-static void tk_name_song(const char *file)      /* the song's own name: its file's */
+static void sq_name_song(const char *file)      /* the song's own name: its file's */
 {
-    char nm[24];
+    char nm[16];
     int k = 0;
-    while (k < 23 && file[k] && file[k] != '.') { nm[k] = file[k]; k++; }
-    while (k < 24) nm[k++] = 0;
-    for (int i = 0; i < 24; i += 2) song_poke(SO_NAME + i, 2, (uint8_t)nm[i] << 8 | (uint8_t)nm[i + 1]);
+    while (k < 15 && file[k] && file[k] != '.') { nm[k] = file[k]; k++; }
+    while (k < 16) nm[k++] = 0;
+    for (int i = 0; i < 16; i += 2) song_poke(SO_NAME + i, 2, (uint8_t)nm[i] << 8 | (uint8_t)nm[i + 1]);
 }
 
-static void tk_save(int as_new)
+static void sq_save(int as_new)
 {
     char name[24];
     int n = songs_list();
     if (n < 0) { patches_again(); say(-n == ERR_NO_ED ? "NO EVERDRIVE: CANNOT SAVE" : "SD CARD ERROR"); return; }
-    if (as_new || !tk_file[0]) tk_new_name(name, "sng");
-    else strcpy(name, tk_file);
+    if (as_new || !sq_file[0]) sq_new_name(name, "sng");
+    else strcpy(name, sq_file);
     patches_again();
-    for (int ch = 0; ch < SONG_PARTS; ch++) {   /* each part: the file its channel has now */
-        const char *p = part_path(ch);
-        if (!p) continue;
-        lib_put_name(p);
-        sq(SQ_PATH, ch, 1, 0);
-    }
-    tk_name_song(name);
+    sq_name_song(name);
     lib_put_name(name);
     unsigned e = sq(SQ_SAVE, 0, 0, 0);
     if (e) { say_err("COULD NOT SAVE THE SONG:", (int)e); return; }
-    strcpy(tk_file, name);
+    strcpy(sq_file, name);
     char t[48] = "SAVED MIDI_SONGS/";
     strcat(t, name);
     say(t);
 }
 
-static void tk_export(void)
+static void sq_export(void)
 {
     char name[24];
     int n = songs_list();
     if (n < 0) { patches_again(); say("NO SD CARD: CANNOT EXPORT"); return; }
-    if (tk_file[0]) {
-        strcpy(name, tk_file);
+    if (sq_file[0]) {
+        strcpy(name, sq_file);
         char *dot = name;
         while (*dot && *dot != '.') dot++;
         strcpy(dot, ".mid");
     } else {
-        tk_new_name(name, "mid");
+        sq_new_name(name, "mid");
     }
     patches_again();
     lib_put_name(name);
     unsigned e = sq(SQ_EXPORT, 0, 0, 0);
+    sq(SQ_LIVE, 0, 1, 0);               /* (the export let go of the keyboard) */
     if (e) { say_err("COULD NOT WRITE THE MIDI FILE:", (int)e); return; }
     char t[48] = "WROTE MIDI_SONGS/";
     strcat(t, name);
     say(t);
 }
 
-static void tk_open(int i)
+static void sq_open(int i)
 {
     char name[NAME_MAX + 1];
     strncpy(name, lib_name(i), NAME_MAX);
@@ -2219,16 +2454,14 @@ static void tk_open(int i)
     patches_again();
     lib_put_name(name);
     unsigned e = sq(SQ_LOAD, 0, 0, 0);
-    if (e) { say_err("COULD NOT OPEN THE SONG:", (int)e); return; }
-    strncpy(tk_file, name, sizeof tk_file - 1);
-    tk_file[sizeof tk_file - 1] = 0;
-    gfx_text(4, SCREEN_H - 9, "LOADING ITS INSTRUMENTS...", COL_HI);
-    gfx_present();
-    int bad = tk_load_parts();
-    tk_ord = tk_row = 0;
-    tk_enter();
-    if (bad) say_err("SONG OPEN. INSTRUMENTS NOT FOUND:", bad);
-    else say("SONG OPEN");
+    sq_fetch();
+    if (e) { say_err(e == ERR_RANGE ? "NOT A SONG OF THIS VERSION:" : "COULD NOT OPEN THE SONG:", (int)e); return; }
+    strncpy(sq_file, name, sizeof sq_file - 1);
+    sq_file[sizeof sq_file - 1] = 0;
+    sq_init_done = 1;
+    x32_sounds();
+    ar_t0 = 0;
+    say("SONG OPEN");
 }
 
 static void draw_songs(void)
@@ -2252,127 +2485,248 @@ static void songs_input(uint16_t p)
     if (sl_pick < sl_top) sl_top = sl_pick;
     if (sl_pick >= sl_top + 14) sl_top = sl_pick - 13;
     if (p & (PAD_UP | PAD_DOWN)) ov_dirty = 1;
-    if (p & PAD_A) { overlay = OV_NONE; tk_open(sl_pick); dirty = 1; }
+    if (p & PAD_A) { overlay = OV_NONE; sq_open(sl_pick); dirty = 1; }
     else if (p & (PAD_B | PAD_START | PAD_C)) { overlay = OV_NONE; patches_again(); dirty = 1; }
 }
 
-/* ---- the menu (C) */
-enum { TM_REC, TM_KEYS, TM_ROUTE, TM_MUTE, TM_SOUND, TM_SONG, TM_CLRLANE, TM_CLRPAT, TM_INS, TM_DEL,
-       TM_TRANS, TM_OUT, TM_NEW, TM_OPEN, TM_SAVE, TM_SAVENEW, TM_EXPORT, TM_EXIT, NTM };
-static const char *const tm_names[NTM] = {
-    "RECORD WHEN PLAYING", "KEYBOARD ENTERS NOTES", "THIS LANE PLAYS", "MUTE THIS LANE",
-    "CHOOSE ITS INSTRUMENT...", "SONG: TEMPO, ORDER LIST...", "CLEAR THIS LANE", "CLEAR THE PATTERN",
-    "INSERT A ROW HERE", "DELETE THIS ROW", "TRANSPOSE THIS LANE", "MIDI OUT TO COMPUTER",
-    "NEW SONG", "OPEN A SONG...", "SAVE", "SAVE AS A NEW FILE", "EXPORT A MIDI FILE (.MID)",
-    "BACK TO THE PATCHES" };
-static int tm_row;
-
-static void draw_tkmenu(void)
+/* ---- in and out */
+static void tk_enter(void)
 {
-    char t[32];
-    panel(24, 15, 272, 196);
-    gfx_text(32, 20, "SONG MENU", COL_HI);
-    for (int i = 0; i < NTM; i++) {
-        int y = 32 + i * 10;
-        if (i == tm_row) gfx_rect(28, y - 2, 264, 10, COL_CURSOR);
-        gfx_text(32, y, tm_names[i], i == tm_row ? COL_HI : COL_TEXT);
-        t[0] = 0;
-        switch (i) {
-        case TM_REC: strcpy(t, tk_rec ? "ON" : "OFF"); break;
-        case TM_KEYS: if (tk_keys) { strcpy(t, "STEP "); *fmt_num(t + 5, tk_step) = 0; } else strcpy(t, "OFF"); break;
-        case TM_ROUTE: { char *o = put_str(t, "CH "); o = fmt_num(o, tk_ch[tk_lane] + 1); *o = 0; break; }
-        case TM_MUTE: strcpy(t, tk_mute >> tk_lane & 1 ? "ON" : "OFF"); break;
-        case TM_TRANS: strcpy(t, "< -1  +1 >"); break;
-        case TM_OUT: strcpy(t, settings[SET_MIDIOUT] == 2 ? "SONG + KEYS" : settings[SET_MIDIOUT] ? "THE SONG" : "OFF"); break;
-        case TM_SAVE: strncpy(t, tk_file[0] ? tk_file : "(NEW FILE)", 16); t[16] = 0; break;
+    if (settings[SET_MODE]) {           /* (each FM channel its own: the song's voices) */
+        settings[SET_MODE] = (uint8_t)md_cmd(CMD_SETTING, SET_MODE, 0, 0);
+        say("THE SONG PLAYS IN GENMDM MODE");
+    }
+    if (tk_from_lib && target == track_target(sq_sel)) {        /* (back from choosing: edits too) */
+        int slot = target >= PWM_T && target < PWM_T + 4 ? target - 1 : target;
+        if (IS_PSG(target) ? psg_edited[target - PSG_T] : chan_edited[slot]) sound_from(target, sq_sel, 0);
+    }
+    tk_from_lib = 0;
+    if (!sq_init_done) { sq_init_done = 1; sounds_from_home(); }
+    sq(SQ_LIVE, 0, 1, 0);
+    screen = SCR_ARRANGE;
+    sq_fetch();
+    sq_poll();
+    dirty = 1;
+}
+
+static void tk_leave(void)              /* home: the keyboard plays as before */
+{
+    hear(0, 0);
+    sq(SQ_STOP, 0, 0, 0);
+    sq(SQ_LIVE, 0, 0, 0);
+    screen = SCR_LIBRARY;
+    dirty = 1;
+}
+
+static void choose_sound(void)          /* the library, for the selected track */
+{
+    int t = track_target(sq_sel);
+    if (t < 0) {
+        say(tr_kind[sq_sel] == TK_DRUMS ? "DRUMS PLAY THE KIT IN MIDI_DRUMS"
+            : tr_kind[sq_sel] == TK_MIDI ? "A MIDI TRACK: IT ONLY GOES OUT TO THE COMPUTER"
+                                         : "NO 32X HERE: IT ONLY GOES OUT AS MIDI");
+        return;
+    }
+    hear(0, 0);
+    target = t;
+    uint8_t b[SOUND_MAX];
+    int n = (int)sq(SQ_SOUND, sq_sel, 0xFFFF, 0);  /* (the track's sound, there to see and change) */
+    if (n > 0) {
+        if (IS_PSG(t)) {
+            md_cmd(CMD_PSG_SET, (uint16_t)(t - PSG_T), (uint16_t)n, 0);
+            psg_from[t - PSG_T] = 0;
+            psg_edited[t - PSG_T] = 0;
+        } else if (n >= FM_SOUND) {
+            lib_get(BUF_DATA, b, FM_SOUND);
+            fm_patch p;
+            blob_patch(b, &p);
+            slot_apply(shown_ch(), &p);
+            chan_edited[shown_ch()] = 0;
         }
-        if (i == tk_confirm) strcpy(t, "A AGAIN: SURE?");
-        gfx_text(204, y, t, i == tm_row ? COL_HI : COL_HEAD);
+    }
+    slot_read(shown_ch(), &voice);
+    if (IS_PSG(target)) lib_psg_get(target - PSG_T, &psg_shown);
+    tk_from_lib = 1;
+    screen = SCR_LIBRARY;
+    dirty = 1;
+    say("CHOOSE A SOUND. START: BACK TO THE SONG");
+}
+
+/* ---- the arrange view's buttons */
+static void arrange_input(uint16_t p)
+{
+    int c = (held_now & PAD_C) != 0, c_edge = c && !sq_c_down, c_up = !c && sq_c_down;
+    sq_c_down = c;
+    if (c_edge) sq_c_used = 0;
+    if (c_up && !sq_c_used) { overlay = OV_TKMENU; sq_confirm = -1; ov_dirty = 1; return; }
+    if (p & PAD_START) { transport(0); return; }
+    if (p & PAD_X) { transport(!(sq_flags & SQS_PLAY)); return; }
+    if (p & (PAD_UP | PAD_DOWN)) {
+        int old = sq_sel;
+        sq_sel = (sq_sel + ((p & PAD_DOWN) ? 1 : SONG_TRACKS - 1)) % SONG_TRACKS;
+        song_poke(SO_SEL, 1, sq_sel);
+        sq(SQ_STATE, 0, 0, 0);
+        sq_edits = md_p(C_P3);
+        ar_redraw_rows(old, sq_sel);
+        sq_present = 1;
+    }
+    if (p & (PAD_LEFT | PAD_RIGHT)) {
+        uint32_t bl = bar_len(), t = sq_pos / bl * bl;
+        if (p & PAD_LEFT) t = t >= bl ? (sq_pos % bl ? t : t - bl) : 0;
+        else t += bl;
+        sq(SQ_LOCATE, (int)(t >> 16), (int)(t & 0xFFFF), 0);
+        sq_poll();
+        tk_bar_dirty = 1;
+    }
+    if (p & PAD_A) {                    /* the piano roll */
+        screen = SCR_ROLL;
+        pr_cur = sq_pos / 24 * 24;
+        pr_t0 = sq_pos / bar_len() * bar_len();
+        roll_view();
+        dirty = 1;
+    }
+    if (p & PAD_Y) choose_sound();
+    if (p & PAD_B) {                    /* mute */
+        tr_flags[sq_sel] ^= TF_MUTE;
+        song_poke(SO_TRACKS + sq_sel * TR_BYTES + TR_FLAGS, 1, tr_flags[sq_sel]);
+        dirty = 1;
+    }
+    if (p & PAD_Z) { sq(SQ_UNDO, 0, 0, 0); say("THE LAST TAKE: TAKEN OUT"); dirty = 1; }
+}
+
+/* ---- the menu (C) */
+enum { SM_BPM, SM_BEATS, SM_CYCLE, SM_CYC_A, SM_CYC_B, SM_CLICK, SM_COUNTIN, SM_KIND, SM_CH, SM_SOLO,
+       SM_QUANT, SM_CLEAR, SM_UNDO, SM_OUT, SM_NEW, SM_OPEN, SM_SAVE, SM_SAVENEW, SM_EXPORT, SM_EXIT, NSM };
+static const char *const sm_names[NSM] = {
+    "TEMPO", "BEATS A BAR", "CYCLE (LOOP)", "CYCLE FROM BAR", "CYCLE TO BAR", "CLICK", "COUNT-IN",
+    "THIS TRACK PLAYS", "ITS MIDI CHANNEL", "SOLO IT", "QUANTIZE IT", "CLEAR ITS NOTES",
+    "UNDO THE LAST TAKE", "MIDI OUT TO COMPUTER", "NEW SONG", "OPEN A SONG...", "SAVE",
+    "SAVE AS A NEW FILE", "EXPORT A MIDI FILE (.MID)", "BACK TO THE PATCHES" };
+static int sm_row;
+
+static int sm_old = -1;                 /* (only rows sm_old and sm_row to draw again) */
+
+static void draw_sm_row(int i)
+{
+    static const char *const qn[Q_COUNT] = { "OFF (AS PLAYED)", "1/4", "1/8", "1/8 TRIPLETS", "1/16", "1/16 TRIPLETS", "1/32" };
+    char t[32];
+    {
+        int y = 29 + i * 9;
+        gfx_rect(24, y - 1, 272, 9, i == sm_row ? COL_CURSOR : COL_PANEL2);
+        gfx_text(28, y, sm_names[i], i == sm_row ? COL_HI : COL_TEXT);
+        t[0] = 0;
+        int k = sq_sel;
+        switch (i) {
+        case SM_BPM: *fmt_num(t, sq_bpm) = 0; break;
+        case SM_BEATS: *fmt_num(t, sq_beats) = 0; break;
+        case SM_CYCLE: strcpy(t, sq_sflags & SF_CYCLE ? "ON" : "OFF"); break;
+        case SM_CYC_A: *fmt_num(t, sq_cyc_a + 1) = 0; break;
+        case SM_CYC_B: *fmt_num(t, sq_cyc_b) = 0; break;
+        case SM_CLICK: strcpy(t, sq_sflags & SF_CLICK_PLAY ? "ALWAYS" : sq_sflags & SF_CLICK_REC ? "RECORDING" : "OFF"); break;
+        case SM_COUNTIN: strcpy(t, sq_sflags & SF_COUNTIN ? "A BAR" : "OFF"); break;
+        case SM_KIND: strcpy(t, kind_names[tr_kind[k] % TK_COUNT]); break;
+        case SM_CH: *fmt_num(t, tr_ch[k] + 1) = 0; break;
+        case SM_SOLO: strcpy(t, tr_flags[k] & TF_SOLO ? "ON" : "OFF"); break;
+        case SM_QUANT: strcpy(t, qn[tr_quant[k] % Q_COUNT]); break;
+        case SM_OUT: strcpy(t, settings[SET_MIDIOUT] == 2 ? "SONG + KEYS" : settings[SET_MIDIOUT] ? "THE SONG" : "OFF"); break;
+        case SM_SAVE: strncpy(t, sq_file[0] ? sq_file : "(NEW FILE)", 16); t[16] = 0; break;
+        }
+        if (i == sq_confirm) strcpy(t, "A AGAIN: SURE?");
+        gfx_text(196, y, t, i == sm_row ? COL_HI : COL_HEAD);
     }
 }
 
-static void tk_patop(int op, int arg)
+static void draw_tkmenu(void)
 {
-    sq(SQ_PATOP, op, tk_pat << 8, arg);
-    tk_dirty_rows = ~0u;
+    if (sm_old >= 0) {                  /* (the cursor moved: two rows) */
+        draw_sm_row(sm_old);
+        draw_sm_row(sm_row);
+        sm_old = -1;
+        return;
+    }
+    panel(20, 14, 280, 196);
+    gfx_text(28, 18, "SONG MENU", COL_HI);
+    for (int i = 0; i < NSM; i++) draw_sm_row(i);
+}
+
+static void tr_poke(int f, int v)
+{
+    song_poke(SO_TRACKS + sq_sel * TR_BYTES + f, 1, v);
 }
 
 static void tkmenu_input(uint16_t p)
 {
-    if (p & PAD_UP) tm_row = (tm_row + NTM - 1) % NTM;
-    if (p & PAD_DOWN) tm_row = (tm_row + 1) % NTM;
-    if (p & (PAD_UP | PAD_DOWN)) { tk_confirm = -1; ov_dirty = 1; }
-    int d = (p & PAD_RIGHT) ? 1 : (p & PAD_LEFT) ? -1 : 0;
-    int a = (p & PAD_A) != 0;
-    if (p & (PAD_B | PAD_C | PAD_START)) { overlay = OV_NONE; tk_confirm = -1; tk_c_used = 1; dirty = 1; return; }
+    int was = sm_row;
+    if (p & PAD_UP) sm_row = (sm_row + NSM - 1) % NSM;
+    if (p & PAD_DOWN) sm_row = (sm_row + 1) % NSM;
+    if (p & (PAD_UP | PAD_DOWN)) {
+        if (!ov_dirty) sm_old = sq_confirm >= 0 ? -1 : was;     /* (a whole draw already due: that) */
+        sq_confirm = -1;
+        ov_dirty = 1;
+    }
+    int d = (p & PAD_RIGHT) ? 1 : (p & PAD_LEFT) ? -1 : 0, a = (p & PAD_A) != 0;
+    if (p & (PAD_B | PAD_C | PAD_START)) { overlay = OV_NONE; sq_confirm = -1; sq_c_used = 1; dirty = 1; return; }
     if (!d && !a) return;
-    ov_dirty = 1;                       /* (the menu shows the new value) */
-    switch (tm_row) {
-    case TM_REC: tk_rec = !tk_rec; break;
-    case TM_KEYS:
-        if (a) tk_keys = !tk_keys;
-        else { tk_step += d; if (tk_step < 1) tk_step = 16; if (tk_step > 16) tk_step = 1; tk_keys = 1; }
-        tk_send_cursor();
-        break;
-    case TM_ROUTE: {
-        int ch = (tk_ch[tk_lane] + (d ? d : 1) + 16) % 16;
-        song_poke(SO_LANE + tk_lane, 1, ch);
-        tk_ch[tk_lane] = (uint8_t)ch;
-        break;
-    }
-    case TM_MUTE: {
-        int m = !(tk_mute >> tk_lane & 1);
-        sq(SQ_MUTE, tk_lane, m, 0);
-        tk_mute = m ? tk_mute | 1u << tk_lane : tk_mute & ~(1u << tk_lane);
+    int k = sq_sel, dd = d ? d : 1;
+    ov_dirty = 1;
+    sm_old = -1;                        /* (the values: all of it) */
+    if (!dirty && sm_row != SM_QUANT && sm_row < SM_CLEAR) sm_old = sm_row;    /* (one row's value) */
+    switch (sm_row) {
+    case SM_BPM: { int v = sq_bpm + dd; if (v < 20) v = 20; if (v > 300) v = 300; song_poke(SO_BPM, 2, v); break; }
+    case SM_BEATS: { int v = sq_beats + dd; if (v < 1) v = 16; if (v > 16) v = 1; song_poke(SO_BEATS, 1, v); break; }
+    case SM_CYCLE: song_poke(SO_FLAGS, 1, sq_sflags ^ SF_CYCLE); break;
+    case SM_CYC_A: { int v = sq_cyc_a + dd; if (v < 0) v = 0; if (v >= sq_cyc_b) v = sq_cyc_b - 1; song_poke(SO_CYC_A, 2, v); break; }
+    case SM_CYC_B: { int v = sq_cyc_b + dd; if (v <= sq_cyc_a) v = sq_cyc_a + 1; if (v > 999) v = 999; song_poke(SO_CYC_B, 2, v); break; }
+    case SM_CLICK: {
+        int c = sq_sflags & SF_CLICK_PLAY ? 2 : sq_sflags & SF_CLICK_REC ? 1 : 0;
+        c = (c + dd + 3) % 3;
+        song_poke(SO_FLAGS, 1, (sq_sflags & ~(SF_CLICK_REC | SF_CLICK_PLAY)) | (c == 2 ? SF_CLICK_REC | SF_CLICK_PLAY : c ? SF_CLICK_REC : 0));
         break;
     }
-    case TM_TRANS:
-        if (d) tk_patop(PO_TRANSPOSE, tk_lane | (d & 0xFF) << 8);
+    case SM_COUNTIN: song_poke(SO_FLAGS, 1, sq_sflags ^ SF_COUNTIN); break;
+    case SM_KIND: {
+        int v = (tr_kind[k] + dd + TK_COUNT) % TK_COUNT;
+        tr_poke(TR_KIND, v);
+        if (v == TK_X32 && (tr_ch[k] < 10 || tr_ch[k] > 13)) tr_poke(TR_CH, 10);
+        if (v == TK_DRUMS) tr_poke(TR_CH, 9);
         break;
-    case TM_OUT: {
-        int v = (settings[SET_MIDIOUT] + (d ? d : 1) + 3) % 3;
+    }
+    case SM_CH: {
+        int v = tr_ch[k] + dd;
+        if (tr_kind[k] == TK_X32) v = 10 + ((v - 10 + 4) & 3);
+        else v = (v + 16) % 16;
+        tr_poke(TR_CH, v);
+        break;
+    }
+    case SM_SOLO: tr_poke(TR_FLAGS, tr_flags[k] ^ TF_SOLO); break;
+    case SM_QUANT: {
+        int v = (tr_quant[k] + dd + Q_COUNT) % Q_COUNT;
+        sq(SQ_QUANT, k, v, 0);
+        break;
+    }
+    case SM_OUT: {
+        int v = (settings[SET_MIDIOUT] + dd + 3) % 3;
         settings[SET_MIDIOUT] = (uint8_t)md_cmd(CMD_SETTING, SET_MIDIOUT, (uint16_t)v, 0);
         if (v && (hw_flags() & FL_LINK) != LINK_MIDI) say("MIDI OUT NEEDS THE NEW TEENSY FIRMWARE");
         break;
     }
     default:
         if (!a) break;
-        if ((tm_row == TM_NEW || tm_row == TM_CLRPAT || tm_row == TM_CLRLANE) && tk_confirm != tm_row) {
-            tk_confirm = tm_row;
-            break;
-        }
-        tk_confirm = -1;
+        if ((sm_row == SM_NEW || sm_row == SM_CLEAR) && sq_confirm != sm_row) { sq_confirm = sm_row; break; }
+        sq_confirm = -1;
         overlay = OV_NONE;
         dirty = 1;
-        switch (tm_row) {
-        case TM_SOUND: {
-            int t = part_target(tk_ch[tk_lane]);
-            if (t < 0 || t == DRUMS_T) {
-                say(t == DRUMS_T ? "DRUMS: THE WAVS IN MIDI_DRUMS" : "NOTHING HERE PLAYS THIS PART (MIDI OUT)");
-                break;
-            }
-            target = t;
-            slot_read(shown_ch(), &voice);
-            if (IS_PSG(target)) lib_psg_get(target - PSG_T, &psg_shown);
-            tk_hear(0, 0);
-            tk_from_lib = 1;
-            screen = SCR_LIBRARY;
-            say("CHOOSE A SOUND, START: BACK TO THE SONG");
-            break;
-        }
-        case TM_SONG: screen = SCR_SONG; sg_row = 4; sg_pos = tk_ord; tk_fetch(); break;
-        case TM_CLRLANE: tk_patop(PO_CLEAR, tk_lane); break;
-        case TM_CLRPAT: tk_patop(PO_CLEAR, 0xFF); break;
-        case TM_INS: tk_patop(PO_INSERT, 0xFF | tk_row << 8); break;
-        case TM_DEL: tk_patop(PO_DELETE, 0xFF | tk_row << 8); break;
-        case TM_NEW:
+        switch (sm_row) {
+        case SM_CLEAR: sq(SQ_CLEAR, k, 0, 0); say("THE TRACK'S NOTES: CLEARED"); break;
+        case SM_UNDO: sq(SQ_UNDO, 0, 0, 0); say("THE LAST TAKE: TAKEN OUT"); break;
+        case SM_NEW:
             sq(SQ_NEW, 0, 0, 0);
-            tk_file[0] = 0;
-            tk_ord = tk_row = 0;
-            tk_enter();
-            say("A NEW SONG");
+            sq_file[0] = 0;
+            sounds_from_home();
+            ar_t0 = 0;
+            say("A NEW SONG: THE SOUNDS YOU HAD LOADED");
             break;
-        case TM_OPEN: {
+        case SM_OPEN: {
             int n = songs_list();
             if (n <= 0) {
                 patches_again();
@@ -2383,277 +2737,40 @@ static void tkmenu_input(uint16_t p)
             overlay = OV_SONGS;
             break;
         }
-        case TM_SAVE: tk_save(0); break;
-        case TM_SAVENEW: tk_save(1); break;
-        case TM_EXPORT: tk_export(); break;
-        case TM_EXIT: tk_leave(); break;
+        case SM_SAVE: sq_save(0); break;
+        case SM_SAVENEW: sq_save(1); break;
+        case SM_EXPORT: sq_export(); break;
+        case SM_EXIT: tk_leave(); break;
         }
     }
-}
-
-/* ---- the pattern */
-static void tracker_input(uint16_t p)
-{
-    int a = (held_now & PAD_A) != 0, b = (held_now & PAD_B) != 0, c = (held_now & PAD_C) != 0;
-    int a_edge = a && !tk_a_down, b_edge = b && !tk_b_down, b_up = !b && tk_b_down;
-    int c_edge = c && !tk_c_down, c_up = !c && tk_c_down;
-    tk_a_down = a; tk_b_down = b; tk_c_down = c;
-    if (b_edge) tk_b_used = 0;
-    if (c_edge) tk_c_used = 0;
-    int d = (p & PAD_UP) ? 1 : (p & PAD_DOWN) ? -1 : (p & PAD_RIGHT) ? 12 : (p & PAD_LEFT) ? -12 : 0;
-    if (a) {                            /* A held: the note (the D-pad changes it) */
-        int vel, n = 0;
-        if (a_edge || d || b_edge) n = tk_get(&vel);
-        if (a_edge) {
-            if (!n || n == NOTE_OFF) { n = tk_note; vel = tk_vel; tk_put(n, vel); }
-            else { tk_note = n; tk_vel = vel; }
-            tk_hear(n, vel);
-        } else if (d && n && n != NOTE_OFF) {
-            n += d;
-            if (n < 1) n = 1;
-            if (n > 127) n = 127;
-            tk_put(n, vel);
-            tk_note = n;
-            tk_hear(n, vel);
-        }
-        if (b_edge) { tk_put(NOTE_OFF, 0); tk_b_used = 1; tk_hear(0, 0); }
-        return;
-    }
-    if (tk_heard >= 0) tk_hear(0, 0);
-    if (b) {                            /* B held: the velocity */
-        int dv = (p & PAD_UP) ? 1 : (p & PAD_DOWN) ? -1 : (p & PAD_RIGHT) ? 16 : (p & PAD_LEFT) ? -16 : 0;
-        if (dv) {
-            int vel, n = tk_get(&vel);
-            tk_b_used = 1;
-            if (n && n != NOTE_OFF) {
-                vel += dv;
-                if (vel < 1) vel = 1;
-                if (vel > 127) vel = 127;
-                tk_put(n, vel);
-                tk_vel = vel;
-            }
-        }
-        return;
-    }
-    if (b_up && !tk_b_used) tk_put(0, 0);       /* B alone: clear the cell */
-    if (c) {                            /* C held: UP/DOWN a bar, LEFT/RIGHT the order */
-        int stopped = !(tk_flags & SQS_PLAY);
-        int bar = tk_rpb ? tk_rpb * 4 : 16;
-        if ((p & PAD_UP) && stopped) { tk_move(-bar); tk_c_used = 1; }
-        if ((p & PAD_DOWN) && stopped) { tk_move(bar); tk_c_used = 1; }
-        if ((p & PAD_LEFT) && stopped) { tk_goto(tk_ord - 1, 0); tk_c_used = 1; }
-        if ((p & PAD_RIGHT) && stopped) { tk_goto(tk_ord + 1, 0); tk_c_used = 1; }
-        return;
-    }
-    if (c_up && !tk_c_used) { overlay = OV_TKMENU; tk_confirm = -1; ov_dirty = 1; return; }   /* (over the pattern as drawn) */
-    if (p & PAD_START) {
-        if (tk_flags & SQS_PLAY) sq(SQ_STOP, 0, 0, 0);
-        else sq(SQ_PLAY, 1, tk_ord << 8 | tk_row, tk_rec);
-        tk_poll();
-        tk_bar_dirty = 1;
-        return;
-    }
-    if (p & PAD_X) { tk_rec = !tk_rec; tk_bar_dirty = 1; dirty = 1; }
-    if (p & PAD_Y) { tk_keys = !tk_keys; tk_send_cursor(); tk_bar_dirty = 1; say(tk_keys ? "KEYBOARD ENTERS NOTES (Y: OFF)" : "KEYBOARD ONLY PLAYS"); }
-    if (p & PAD_Z) { tm_row = TM_SOUND; tkmenu_input(PAD_A); return; }
-    if ((p & PAD_DOWN) && !(tk_flags & SQS_PLAY)) tk_move(1);
-    if ((p & PAD_UP) && !(tk_flags & SQS_PLAY)) tk_move(-1);
-    if (p & (PAD_LEFT | PAD_RIGHT)) {
-        tk_lane = (tk_lane + ((p & PAD_RIGHT) ? 1 : SONG_LANES - 1)) % SONG_LANES;
-        tk_send_cursor();
-        int old = tk_left;
-        tk_scroll();
-        if (old == tk_left) { row_dirty(tk_row); tk_draw_lanes(); }
-    }
-}
-
-/* ---- the song page: tempo, rows a beat, the pattern's length, the loop, the order list */
-static int first_free_pattern(void)
-{
-    uint8_t used[SONG_PATS / 8];
-    memset(used, 0, sizeof used);
-    for (int i = 0; i < tk_nord; i++) { int q = song_byte(SO_ORD + i) % SONG_PATS; used[q >> 3] |= (uint8_t)(1 << (q & 7)); }
-    for (int q = 0; q < SONG_PATS; q++) {
-        sq(SQ_PEEK, 0, SO_PCNT + q * 2, 0);
-        if (!(used[q >> 3] >> (q & 7) & 1) && !md_p(C_P1)) return q;
-    }
-    return -1;
-}
-
-static void draw_song(void)
-{
-    char t[48], *o;
-    gfx_clear(COL_BG);
-    strcpy(t, "SONG: ");
-    strcat(t, tk_file[0] ? tk_file : "NEW");
-    header(t);
-    int pat = song_byte(SO_ORD + (sg_pos < tk_nord ? sg_pos : tk_nord - 1)) % SONG_PATS;
-    static const char *const nm[4] = { "TEMPO", "ROWS A BEAT", "PATTERN LENGTH", "LOOP BACK TO" };
-    for (int i = 0; i < 4; i++) {
-        int y = 17 + i * 11;
-        if (i == sg_row) gfx_rect(2, y - 2, 200, 11, COL_CURSOR);
-        gfx_text(6, y, nm[i], COL_TEXT);
-        o = t;
-        if (i == 0) { o = fmt_num(o, tk_bpm); o = put_str(o, " BPM"); }
-        else if (i == 1) o = fmt_num(o, tk_rpb);
-        else if (i == 2) { o = fmt_num(o, song_byte(SO_PLEN + pat)); o = put_str(o, " ROWS (PAT "); o = put_n(o, pat, 2); *o++ = ')'; }
-        else { o = put_str(o, "ORDER "); o = put_n(o, tk_loop, 2); }
-        *o = 0;
-        gfx_text(100, y, t, i == sg_row ? COL_HI : COL_HEAD);
-    }
-    sq(SQ_FREE, 0, 0, 0);
-    o = put_str(t, "ROOM FOR ");
-    o = fmt_num(o, md_p(C_P1));
-    o = put_str(o, " MORE NOTES");
-    *o = 0;
-    gfx_text(210, 17, "MEMORY", COL_DIM);
-    gfx_text_n(210, 28, t + 9, 18, COL_DIM);
-    gfx_text(6, 64, "ORDER LIST: THE PATTERNS, IN PLAYING ORDER", sg_row == 4 ? COL_HI : COL_HEAD);
-    int playing = (tk_flags & SQS_PLAY) != 0;
-    uint8_t ord[6];
-    for (int i = 0; i < SONG_ORDS; i++) {
-        if (i % 6 == 0) {
-            sq(SQ_PEEK, 0, SO_ORD + i, 0);
-            uint16_t w[3] = { md_p(C_P1), md_p(C_P2), md_p(C_P3) };
-            for (int k = 0; k < 6; k++) ord[k] = (uint8_t)(k & 1 ? w[k >> 1] : w[k >> 1] >> 8);
-        }
-        int r = i / 16, c = i % 16, x = 30 + c * 18, y = 77 + r * 10;
-        if (c == 0) { *put_n(t, i, 3) = 0; gfx_text(4, y, t, COL_DIM); }
-        int here = sg_row == 4 && i == sg_pos;
-        if (here) gfx_rect(x - 2, y - 1, 16, 10, COL_CURSOR);
-        if (i < tk_nord) {
-            *put_n(t, ord[i % 6] % SONG_PATS, 2) = 0;
-            gfx_text(x, y, t, here ? COL_HI : playing && i == tk_ord ? COL_GREEN : i == tk_loop ? COL_ORANGE : COL_TEXT);
-        } else if (i == tk_nord) {
-            gfx_text(x + 3, y, "+", here ? COL_HI : COL_DIM);
-        }
-    }
-    static const char *const help[] = {
-        "D-PAD MOVE. HOLD A + UP/DOWN: ITS PATTERN NUMBER",
-        "A ON +: ADD A NEW PATTERN. X: PLAY IT TWICE. B: REMOVE",
-        "Y: TURN IT INTO A NEW COPY (TO CHANGE ON ITS OWN)",
-        "TOP ROWS: LEFT/RIGHT CHANGE (HOLD A: BY 10)",
-    };
-    for (int i = 0; i < 4; i++) gfx_text(4, 163 + i * 10, help[i], COL_DIM);
-    footer("C: BACK TO THE PATTERN   START: PLAY/STOP");
-}
-
-static void song_set(int row, int d)
-{
-    int pat = song_byte(SO_ORD + (sg_pos < tk_nord ? sg_pos : tk_nord - 1)) % SONG_PATS;
-    if (row == 0) { tk_bpm += d; if (tk_bpm < 20) tk_bpm = 20; if (tk_bpm > 300) tk_bpm = 300; song_poke(SO_BPM, 2, tk_bpm); }
-    else if (row == 1) { tk_rpb += d > 0 ? 1 : -1; if (tk_rpb < 1) tk_rpb = 1; if (tk_rpb > 16) tk_rpb = 16; song_poke(SO_RPB, 1, tk_rpb); }
-    else if (row == 2) {
-        int v = song_byte(SO_PLEN + pat) + d;
-        if (v < 1) v = 1;
-        if (v > SONG_ROWS_MAX) v = SONG_ROWS_MAX;
-        song_poke(SO_PLEN + pat, 1, v);
-    } else {
-        tk_loop = (tk_loop + (d > 0 ? 1 : -1) + tk_nord) % tk_nord;
-        song_poke(SO_LOOP, 1, tk_loop);
-    }
-}
-
-static void order_set(int i, int v) { song_poke(SO_ORD + i, 1, v); }
-
-static void song_input(uint16_t p)
-{
-    int a = (held_now & PAD_A) != 0, a_edge = a && !tk_a_down;
-    tk_a_down = a;
-    int c_edge = (p & PAD_C) != 0;
-    tk_c_down = (held_now & PAD_C) != 0;
-    if (c_edge) {                       /* back to the pattern, at this order position */
-        screen = SCR_TRACKER;
-        tk_c_used = 1;                  /* (its release: not the menu) */
-        if (!(tk_flags & SQS_PLAY)) tk_goto(sg_pos < tk_nord ? sg_pos : tk_nord - 1, 0);
-        tk_fetch();
-        tk_scroll();
-        dirty = 1;
-        return;
-    }
-    if (p & PAD_START) {
-        if (tk_flags & SQS_PLAY) sq(SQ_STOP, 0, 0, 0);
-        else sq(SQ_PLAY, 1, (sg_pos < tk_nord ? sg_pos : 0) << 8, tk_rec);
-        tk_poll();
-        dirty = 1;
-        return;
-    }
-    if (sg_row < 4) {
-        if (p & PAD_UP) sg_row = sg_row ? sg_row - 1 : 4;
-        if (p & PAD_DOWN) sg_row++;
-        int d = (p & PAD_RIGHT) ? 1 : (p & PAD_LEFT) ? -1 : 0;
-        if (d) song_set(sg_row, a ? d * 10 : d);
-        if (p) dirty = 1;
-        return;
-    }
-    dirty = p != 0;
-    if (a) {                            /* A held: the pattern here */
-        int d = (p & PAD_UP) ? 1 : (p & PAD_DOWN) ? -1 : (p & PAD_RIGHT) ? 10 : (p & PAD_LEFT) ? -10 : 0;
-        if (a_edge && sg_pos == tk_nord && tk_nord < SONG_ORDS) {      /* + : a new pattern */
-            int q = first_free_pattern();
-            if (q < 0) { say("ALL 64 PATTERNS ARE IN USE"); return; }
-            order_set(tk_nord, q);
-            song_poke(SO_NORD, 1, ++tk_nord);
-            dirty = 1;
-        } else if (d && sg_pos < tk_nord) {
-            order_set(sg_pos, (song_byte(SO_ORD + sg_pos) + d + SONG_PATS * 10) % SONG_PATS);
-            dirty = 1;
-        }
-        return;
-    }
-    if (p & PAD_UP) { if (sg_pos >= 16) sg_pos -= 16; else sg_row = 3; }
-    if (p & PAD_DOWN) sg_pos += 16;
-    if (p & PAD_LEFT) sg_pos--;
-    if (p & PAD_RIGHT) sg_pos++;
-    if (sg_pos > tk_nord) sg_pos = tk_nord;
-    if (sg_pos >= SONG_ORDS) sg_pos = SONG_ORDS - 1;
-    if (sg_pos < 0) sg_pos = 0;
-    if ((p & PAD_B) && sg_pos < tk_nord && tk_nord > 1) {      /* remove this entry */
-        for (int i = sg_pos; i < tk_nord - 1; i++) order_set(i, song_byte(SO_ORD + i + 1));
-        song_poke(SO_NORD, 1, --tk_nord);
-        if (tk_loop >= tk_nord) song_poke(SO_LOOP, 1, tk_loop = 0);
-    }
-    if ((p & PAD_X) && sg_pos < tk_nord && tk_nord < SONG_ORDS) {   /* this one again, after it */
-        for (int i = tk_nord; i > sg_pos; i--) order_set(i, song_byte(SO_ORD + i - 1));
-        song_poke(SO_NORD, 1, ++tk_nord);
-        sg_pos++;
-    }
-    if ((p & PAD_Y) && sg_pos < tk_nord) {      /* a copy to change: a new pattern */
-        int q = first_free_pattern();
-        if (q < 0) { say("ALL 64 PATTERNS ARE IN USE"); return; }
-        sq(SQ_PATOP, PO_COPY, song_byte(SO_ORD + sg_pos) % SONG_PATS << 8 | q, 0);
-        song_poke(SO_PLEN + q, 1, song_byte(SO_PLEN + song_byte(SO_ORD + sg_pos) % SONG_PATS));
-        order_set(sg_pos, q);
-        say("A NEW COPY OF THE PATTERN");
-    }
+    sq_fetch();
 }
 
 static void draw_tk_help(void)
 {
     static const char *const lines[] = {
-        "SONG TRACKER",
+        "THE SONG",
+        "ARRANGE: UP/DOWN A TRACK (YOUR KEYBOARD PLAYS IT)",
+        " LEFT/RIGHT A BAR   START PLAY/STOP",
+        " X RECORD (A BAR OF CLICKS, THEN PLAY FREELY)",
+        " A ITS PIANO ROLL   Y ITS SOUND   B MUTE",
+        " Z UNDO THE LAST TAKE   C THE MENU",
         "",
-        "D-PAD       MOVE (LANES ACROSS, ROWS DOWN)",
-        "A           PUT A NOTE (HOLD: UP/DN 1, L/R 12)",
-        "B           CLEAR (HOLD: VELOCITY UP/DN, L/R)",
-        "A + B       NOTE OFF",
-        "START       PLAY / STOP (FROM THE CURSOR)",
-        "C           MENU (HOLD: UP/DN A BAR, L/R ORDER)",
-        "X           RECORD ON/OFF (THEN START)",
-        "Y           KEYBOARD ENTERS NOTES (STEP)",
-        "Z           CHOOSE THIS LANE'S INSTRUMENT",
+        "PIANO ROLL: THE D-PAD MOVES THE CURSOR",
+        " A ADD A NOTE (HOLD: MOVE IT, YOU HEAR IT)",
+        " B DELETE (HOLD: LEFT/RIGHT LENGTH,",
+        "   UP/DOWN VELOCITY)   X/Y NEXT/LAST NOTE",
+        " HOLD C: AN OCTAVE / A BAR   C BACK",
         "",
-        "YOUR MIDI KEYBOARD PLAYS THE CURSOR'S LANE:",
-        "CHORDS SPREAD OVER THE LANES OF ITS PART.",
-        "EACH LANE IS ONE VOICE, 22 AT ONCE: FM 1-6,",
-        "PSG 1-3, NOISE, THE 32X'S 6 FM, 6 DRUM LANES.",
+        "QUANTIZE (MENU): NOTES TO A GRID; OFF PUTS",
+        "THEM BACK WHERE YOU PLAYED THEM",
         "",
         "PRESS ANY BUTTON TO CLOSE",
     };
     int n = (int)(sizeof lines / sizeof lines[0]);
-    panel(20, 18, 280, n * CHAR_H + 10);
+    panel(14, 18, 292, n * CHAR_H + 10);
     for (int i = 0; i < n; i++)
-        gfx_text(30, 24 + i * CHAR_H, lines[i], i == 0 || i == n - 1 ? COL_HI : COL_TEXT);
+        gfx_text(22, 24 + i * CHAR_H, lines[i], i == 0 || i == n - 1 ? COL_HI : COL_TEXT);
 }
 
 /* ------------------------------------------------------------ the loop */
@@ -2677,10 +2794,10 @@ void ui_draw(void)
     }
     if (screen == SCR_LIBRARY) draw_library();
     else if (screen == SCR_PSGED) draw_psg_editor();
-    else if (screen == SCR_TRACKER) draw_tracker();
-    else if (screen == SCR_SONG) draw_song();
+    else if (screen == SCR_ARRANGE) draw_arrange();
+    else if (screen == SCR_ROLL) draw_roll();
     else draw_editor();
-    if (overlay == OV_HELP) { if (screen >= SCR_TRACKER) draw_tk_help(); else draw_help(); }
+    if (overlay == OV_HELP) { if (screen >= SCR_ARRANGE) draw_tk_help(); else draw_help(); }
     else if (overlay == OV_TKMENU) draw_tkmenu();
     else if (overlay == OV_SONGS) draw_songs();
     else if (overlay == OV_DELETE) draw_delete();
@@ -2742,18 +2859,14 @@ void ui_frame(void)
         library_input(p);
     } else if (screen == SCR_PSGED) {
         psg_editor_input(p);
-    } else if (screen == SCR_TRACKER) {
-        tracker_input(p);
-    } else if (screen == SCR_SONG) {
-        song_input(p);
+    } else if (screen == SCR_ARRANGE) {
+        arrange_input(p);
+    } else if (screen == SCR_ROLL) {
+        roll_input(p);
     } else {
         editor_input(p);
     }
-    if (screen == SCR_TRACKER || screen == SCR_SONG) {     /* the 68000 plays: where it is */
-        int was = tk_ord, flags = tk_flags;
-        tk_poll();
-        if (screen == SCR_SONG && (was != tk_ord || flags != tk_flags)) dirty = 1;
-    }
+    if (screen == SCR_ARRANGE || screen == SCR_ROLL) sq_poll();    /* the 68000 plays: where it is */
     preview();
     if (load_timer > 0 && (load_timer -= frame_el) <= 0) {
         load_timer = -1;
@@ -2769,7 +2882,7 @@ void ui_frame(void)
     }
     /* the GenMDM changed something: show it (at most every few frames) */
     uint16_t act = hw_activity();
-    if (screen == SCR_TRACKER || screen == SCR_SONG) last_act = act;   /* (the song plays: no voice page) */
+    if (screen == SCR_ARRANGE || screen == SCR_ROLL || tk_from_lib) last_act = act;    /* (the song's voices) */
     if (act != last_act && (act_timer += frame_el) >= 6) {
         act_timer = 0;
         last_act = act;
@@ -2809,8 +2922,14 @@ no_refresh:
         if (overlay == OV_TKMENU) draw_tkmenu(); else draw_songs();
         ov_dirty = 0;
         gfx_present();
-    } else if (screen == SCR_TRACKER && overlay == OV_NONE && (tk_dirty_rows || tk_bar_dirty)) {
-        tk_draw_parts();
+    } else if ((screen == SCR_ARRANGE || screen == SCR_ROLL) && overlay == OV_NONE && (tk_bar_dirty || sq_present)) {
+        if (tk_bar_dirty) {
+            sq_draw_bar();
+            if (screen == SCR_ARRANGE) sq_draw_ruler(AR_X, AR_COLS * AR_COLW, ar_t0, AR_COLW * (sq_beats ? sq_beats : 4));
+            else sq_draw_ruler(PR_X, PR_W, pr_t0, (int)(bar_len() / 6));
+            tk_bar_dirty = 0;
+        }
+        sq_present = 0;
         gfx_present();
     } else if (part_dirty && screen == SCR_LIBRARY && overlay == OV_NONE)
         draw_library_parts();

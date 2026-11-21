@@ -47,7 +47,7 @@ HEADERS := $(wildcard src/32x/*.h src/common/*.h src/include/*.h)
 MARKERS := --title "32X MIDI CONTROLLER" --marker "32X MIDI CONTROLLER"
 
 .PHONY: all test-rom check clean host-test md md-test samples-roms
-all: $(ROM) $(MDROM)
+all: $(ROM) md
 
 $(OBJ) $(OBJ)/sh $(OBJ)/md $(OBJ)/host rom:
 	mkdir -p $@

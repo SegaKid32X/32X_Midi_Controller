@@ -1,134 +1,121 @@
 # pad6
-# The song tracker: Z on the home screen opens it. A puts a note (held: the
-# D-pad changes it), A+B a note off; START plays the pattern (sound); the
-# MIDI keyboard enters notes (Y) and records while playing (X, START); the
-# menu (C) opens MIDI_SONGS/demo.sng, which loads its parts' instruments,
-# and plays it; the song page shows the order list.
+# The song: Z on the home screen opens the arrange view, A the selected
+# track's piano roll: A puts notes, held A moves one. Recording (X): a bar
+# of clicks, then what the keyboard plays (a chord too) lands where it was
+# played; the menu quantizes it; it opens MIDI_SONGS/demo.sng (its sounds
+# are in the song) and plays it.
 run 300
 hello
 run 10
 press z 4
-run 30
-shot tk_empty
+run 90
+shot sq_arrange
 press a 4
-run 10
-press down 4
-run 6
-press down 4
-run 6
-hold a
-run 4
-press up 4
-run 6
-press up 4
-run 6
-press right 4
-run 6
-release a
-run 6
-press down 4
-run 6
-hold a
-run 6
-press b 4
-run 6
-release a
-run 6
-press down 4
-run 6
-press right 4
-run 6
+run 90
+shot sq_roll_empty
 press a 4
-run 10
-shot tk_notes
-audiomark
-press start 4
-run 60
-loud 200
-shot tk_playing
-press start 4
 run 20
-press y 4
+press right 4
 run 10
 press right 4
+run 10
+press right 4
+run 10
+press right 4
+run 10
+press up 4
+run 10
+press up 4
+run 10
+press up 4
+run 10
+press up 4
+run 10
+press a 4
+run 20
+hold a
 run 6
-hello
-run 10
-midi 90 40 64
-run 4
-midi 80 40 00
-run 4
-midi 90 43 50
-run 4
-midi 90 47 50
-run 4
-midi 80 43 00 80 47 00
-run 10
-shot tk_steps
-press y 4
-run 4
-press x 4
-run 4
-hello
-run 10
-press start 4
+press right 4
 run 20
-midi 90 30 70
+release a
 run 30
-midi 80 30 00
-run 20
-press start 4
-run 20
-shot tk_recorded
+shot sq_roll_notes
 press c 4
+run 90
+hello
 run 10
-press up 4
-run 4
-press up 4
-run 4
-press up 4
-run 4
-press up 4
-run 4
-press up 4
+press x 4
+run 130
+hello
 run 10
-shot tk_menu
+midi 90 3C 64
+run 20
+midi 90 40 64 90 43 64
+run 30
+midi 80 3C 00 80 40 00 80 43 00
+run 40
+press start 4
+run 90
+shot sq_recorded
 press a 4
-run 120
-shot tk_songs
+run 90
+shot sq_roll_recorded
+press c 4
+run 90
+press c 4
+run 40
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 20
+press right 4
+run 40
+shot sq_menu_quant
+press b 4
+run 90
+press c 4
+run 40
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 6
+press down 4
+run 20
+press a 4
+run 150
+shot sq_songs
 press a 4
 run 300
-shot tk_demo
+shot sq_demo
 audiomark
 press start 4
-run 120
+run 150
 loud 300
-shot tk_demo_play
+shot sq_demo_play
 press start 4
-run 20
-press c 4
-run 10
-press up 4
-run 4
-press up 4
-run 4
-press up 4
-run 4
-press up 4
-run 4
-press up 4
-run 4
-press up 4
-run 4
-press up 4
-run 4
-press up 4
-run 4
+run 60
 press a 4
-run 30
-shot tk_song_page
-press c 4
-run 20
-shot tk_back
-dumpram tracker
+run 120
+shot sq_demo_roll
+dumpram song
 telem

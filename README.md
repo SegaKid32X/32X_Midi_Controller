@@ -16,13 +16,14 @@ cartridge with a full on-screen instrument editor.
   `.Y12` file (`newpatch001.tfi` ...).
 - **A guide built in:** START on the home screen, a page per topic, with the
   pad drawn and the button to try lit up.
-- **A song tracker** (Z on the home screen): write whole songs on the
-  console, a lane per voice - 22 at once on the 32X (FM 1-6, PSG 1-3, noise,
-  the 32X's six FM voices, six drum lanes) - each part with the instrument you
-  choose from the library; record from your MIDI keyboard or enter notes step
-  by step; save songs to the SD card and open them again, export a standard
-  MIDI file, and send the song (with its MIDI clock) to your computer over
-  USB. See [The song tracker](#the-song-tracker).
+- **Songs, DAW style** (Z on the home screen): 16 tracks, each an instrument
+  from your library, each playing chords (the console shares out every voice
+  it has: 6 FM, 3 PSG and noise, and on the 32X 6 more FM voices and drums);
+  record from your MIDI keyboard as you play it (count-in, click, sustain
+  pedal, loop recording, undo), quantize afterwards (or not), edit notes in a
+  piano roll; save songs on the SD card and open them again, export a
+  standard MIDI file, and send the song with its MIDI clock to your computer
+  over USB. See [Making songs](#making-songs).
 - Works with the GenMDM's **original Teensy firmware**, or with **our
   firmware** (`release/midi32x.hex`), which sends the MIDI itself to the
   console: then the console plays it - GenMDM's whole CC map, plus POLY mode,
@@ -35,7 +36,7 @@ below, and the interactive [FM Patch Lab](docs/patch-lab.html).
 
 **No 32X?** `release/midimd.bin` is the same program for a Genesis / Mega
 Drive alone (with the Mega EverDrive PRO): the library, the editor, saving,
-the guide, the settings, the MIDI monitor and the song tracker, with the same
+the guide, the settings, the MIDI monitor and the songs, with the same
 Teensy firmware (or GenMDM's own). Without the 32X there is no 32X sound (MIDI channels 11-16
 play nothing), and the screen redraws more slowly (about 0.1-0.2 s), since the
 Genesis's 68000 draws it as well as running the sound and the port.
@@ -90,76 +91,89 @@ Streets of Rage 1-3, Sonic 1-3, Beyond Oasis, Ecco, Phantasy Star IV ...),
 taken from vitaflo's genesis-game-instruments archive, sorted by how they
 sound, at full volume.
 
-## The song tracker
+## Making songs
 
-Z on the home screen (or START, menu, the last item) opens it. A song is a
-list of **patterns** played in order (the **order list**); a pattern is rows
-down (time: 4 rows a beat by default, 120 BPM) and **lanes** across. A lane
-plays one note at a time; each lane plays a **part** - a MIDI channel, as on
-the home screen - with that part's instrument:
+Z on the home screen (or START, menu, the last item) opens the song: up to
+16 **tracks**, as in a DAW. Each track is one instrument and plays as many
+notes at once as the hardware has voices for it:
 
-| Lanes | Part (MIDI channel) | Plays |
+| Track plays | Voices | Notes |
 |---|---|---|
-| 1-6 | 1-6 | the YM2612's FM channels |
-| 7-9, 10 | 7-9, 10 | the PSG's three tones, its noise |
-| 11-16 | 11, 12, 13, 14, 11, 12 | the 32X's six FM voices (four instruments) |
-| 17-22 | 16 | the 32X's drum kit (`MIDI_DRUMS`) |
+| FM | the YM2612's 6 channels | each note takes a free channel and its sound is loaded there, so several FM tracks with different sounds share the six |
+| PSG | the PSG's 3 tone channels | with its PSG instrument (volume and pitch sequences) |
+| NOISE | the PSG's noise | |
+| 32X FM | the 32X's 6 FM voices | up to four 32X tracks (MIDI channels 11-14), each its own sound |
+| DRUMS | the 32X's drum kit | the WAVs in `MIDI_DRUMS` |
+| MIDI | none | only goes out to the computer |
 
-So everything the hardware can sound at once has a lane: 22 voices on the
-32X. Several lanes on one part play chords. Any lane can play another part
-(menu, THIS LANE PLAYS), channel 15 included, which only goes out over MIDI.
-On the Genesis alone, lanes on the 32X's parts are silent, but still go to
-the computer (MIDI out, below).
+New songs start with 1-4 FM, 5 PSG, 6 noise, 7-10 the 32X's FM, 11 drums,
+12-13 FM, 14 PSG, 15-16 MIDI; the menu changes what any track plays and its
+MIDI channel. A new song's tracks start with the sounds the home screen has
+loaded. **The sounds are kept in the song**, so a song plays the same even
+if the patch files change or are gone.
 
-**Instruments:** Z in the tracker (or menu, CHOOSE ITS INSTRUMENT) opens the
-library on the cursor lane's part: choose a patch as usual (it plays at once,
-even with the song running), START brings you back. The lane heads show
-each part's instrument. A saved song remembers each part's file and loads
-them all again when it is opened (patches you changed but did not save are
-loaded as their file).
+**Recording:** choose a track (up/down: your MIDI keyboard plays it, chords
+and all), press **X**: a bar of clicks, then play freely. Notes keep the
+time you played them at (96 steps a beat, about 5 ms at 120 BPM), their
+length and velocity; the sustain pedal holds them on. START stops. With the
+**cycle** on (menu), it plays the cycle over and over and each time round
+adds what you play to what is there (you hear the last pass as you play the
+next). **Z** takes the last take out again. Nothing snaps to a grid: that is
+**quantize** (menu, QUANTIZE IT), done afterwards to a whole track - 1/4,
+1/8, 1/16, 1/32 or triplets - and OFF puts every note back where you played
+it.
 
-| Button | In the pattern |
-|---|---|
-| D-pad | move (up/down rows, left/right lanes; past a pattern's end, the next one in the order list) |
-| A | put a note (the last one used); hold A: up/down a semitone, left/right an octave (you hear it) |
-| B | clear the cell; hold B: up/down the velocity by 1, left/right by 16 |
-| A + B | a note off (ends the lane's note: `OFF`) |
-| START | play / stop, from the cursor |
-| C | the menu; hold C: up/down a bar, left/right the previous/next order position |
-| X | record on/off (then START): what you play is recorded, to the nearest row |
-| Y | the keyboard enters notes: each key puts a note at the cursor, which moves down a step when you let go (a chord fills the part's lanes) |
-| Z | choose the cursor lane's instrument |
-| MODE | the controls |
+**The arrange view:** the tracks down the side, the bars across (8 at a
+time), a block where a track has notes, the playhead in green (red while
+recording), the cycle in orange on the ruler.
 
-**The MIDI keyboard always plays the cursor lane's part** (a chord spreads
-over that part's lanes), while stopped, playing and recording.
+| Button | Arrange view | Piano roll |
+|---|---|---|
+| D-pad | up/down a track, left/right a bar | the cursor: left/right a 16th, up/down a semitone |
+| A | the track's piano roll | a note at the cursor (the last length and velocity); hold A: move it (you hear it) |
+| B | mute the track | delete the note; hold B: left/right its length, up/down its velocity |
+| C | the menu | back to the arrange view; hold C: left/right a bar, up/down an octave |
+| X | record (START stops) | the next note |
+| Y | choose the track's sound (the library; START comes back) | the note before |
+| Z | undo the last take | |
+| START | play / stop | play / stop |
 
-**The menu (C):** record, step entry and its step (left/right), which part
-this lane plays, mute it, its instrument, the song page, clear the lane or
-the pattern, insert or delete a row, transpose the lane (left/right), MIDI
-out, and the files: new, open, save, save as a new file, export a MIDI file.
+**The piano roll:** a track's notes as bars, pitch up and time across
+(about 3 1/2 octaves and 4 1/2 bars at once; the view follows the cursor and
+the playhead). Notes from the last take are green.
 
-**The song page** (menu, SONG): tempo (20-300 BPM), rows a beat (1-16), the
-length of the pattern at the cursor (1-128 rows), where the song loops back
-to, and the order list: hold A + up/down to choose an entry's pattern
-(64 patterns), A on `+` adds a new empty pattern, X plays the entry twice, B
-removes it, Y turns it into a new copy you can change on its own, START plays
-from there, C goes back to the pattern.
+**Choosing a sound:** Y on a track opens the library with that track's
+sound on its channel: choose another (the track has it at once: play your
+keyboard to hear it, even with the song running), or edit it with A as
+usual; START goes back to the song.
+
+**The menu (C):** tempo (20-300 BPM), beats a bar, the cycle (on/off, from
+bar, to bar), the click (off, while recording, always), the count-in; for
+the selected track: what it plays, its MIDI channel, solo, quantize, clear
+its notes; undo the last take; MIDI out; and the files: new, open, save,
+save as a new file, export a MIDI file.
 
 **Files:** songs are `.sng` files in a `MIDI_SONGS` folder at the top of the
-SD card (made on the first save): `song001.sng` ... SAVE writes the song
-over its file, SAVE AS a new one. EXPORT writes `song001.mid` next to it: a
-standard MIDI file (type 0, one track, the tempo, each lane's notes on its
-part's channel, the order list played through once), for any DAW. A song
-holds about 5,700 notes (64 patterns of up to 128 rows; 4 bytes a note).
+SD card (made on the first save): `song001.sng` ... EXPORT writes
+`song001.mid` next to it, a standard MIDI file of type 1 (one MIDI track per
+song track with notes, each on its channel, the tempo, 96 ticks a beat; the
+drum track on channel 10 as General MIDI expects) for Logic or any DAW. A
+song holds about 3,000 notes on the 32X, about 850 on the Genesis alone
+(whose songs live in the Z80's 8 KB). Songs from the earlier tracker version
+do not open.
 
-**MIDI out (our firmware):** with Settings, MIDI OUT TO COMPUTER on THE SONG
-(the default), a playing song goes to the computer over the Teensy's USB as
-MIDI: its notes on each part's channel, MIDI clock (24 a beat) and start /
-stop, so a DAW can record it or follow its tempo. SONG + KEYS sends what you
-play as well. The console sends these back over the same port 2 wires (the
-Teensy listens between the MIDI it sends), so it needs our firmware;
-GenMDM's own ignores them.
+**MIDI out (our firmware):** with MIDI OUT TO COMPUTER on THE SONG (the
+default), a playing song goes to the computer over the Teensy's USB: each
+track's notes on its channel, MIDI clock (24 a beat), start / stop / continue
+and the song position, so a DAW can record it or follow its tempo. SONG +
+KEYS sends what you play as well. The console sends these back over the same
+port 2 wires (the Teensy listens between the MIDI it sends), so it needs our
+firmware; GenMDM's own ignores them.
+
+**On the Genesis alone** the song works the same (32X tracks are silent
+there but still go out as MIDI); the screens draw more slowly, so while it
+plays the playhead shows on the ruler only, and the piano roll redraws just
+the rows the cursor moves over.
 
 ## Our Teensy firmware (optional)
 
@@ -177,7 +191,7 @@ console does, which brings:
 - **The 32X's own sound (PWM)** on MIDI channels 11-16: **software FM** on
   11-14 (6 more voices playing the same patch files) and a **drum kit** from
   WAV files on 16 (below).
-- **MIDI out to the computer** for the song tracker: the song, its clock,
+- **MIDI out to the computer** for the songs: the song, its clock,
   and if you like your keys (above).
 
 ## The 32X's FM voices (MIDI channels 11-14, our firmware)
@@ -228,11 +242,11 @@ avr-gcc); it uses PJRC's USB MIDI code (MIT).
 | X | hear it: middle C while held | value up by 10 |
 | Z | | value down by 10 |
 | Y | delete the patch file | back to the library |
-| START | menu: the guide, settings, look again, the tracker | save |
+| START | menu: the guide, settings, look again, the song | save |
 | MODE | the controls panel | the controls panel |
 
-Z on the library opens the song tracker (its own controls are
-[above](#the-song-tracker)).
+Z on the library opens the song (its own controls are
+[above](#making-songs)).
 
 ## How to make a patch (TFI)
 
@@ -422,8 +436,8 @@ or 8-15 (shapes 1-8).
 ```bash
 make            # rom/midi32x.32x and rom/midimd.bin (the Genesis alone)
 make check      # ROM checks; host tests (patch formats, the MIDI engine,
-                # the Teensy link simulated both ways, the tracker's
-                # sequencer, song files and MIDI export); emulator tests
+                # the Teensy link simulated both ways, the song: voices,
+                # recording, quantize, files, MIDI export); emulator tests
 make -C teensy  # teensy/midi32x.hex
 ```
 

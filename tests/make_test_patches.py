@@ -60,31 +60,55 @@ def y12(alg, fb, seed, name):
 (out / "Lead Saw.y12").write_bytes(y12(6, 4, 6, "Lead Saw"))
 
 
-# a song for the tracker (src/common/song.h): MIDI_SONGS/demo.sng, its parts
-# naming the patches above (FM 1 brass, FM 2 bass, the 32X's CH 11 piano)
+# a song (src/common/song.h, version 2): MIDI_SONGS/demo.sng - an FM organ
+# playing chords (one track, three channels at once), an FM bass, the 32X's
+# FM on CH 11, drums; the sounds are in the song itself
 def song():
-    lanes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 10, 11, 15, 15, 15, 15, 15, 15]
-    pats = {0: [(0, 0, 60, 100), (4, 0, 64, 100), (8, 0, 67, 100), (14, 0, 0xFF, 0),
-                (0, 1, 36, 110), (8, 1, 36, 90), (0, 10, 72, 90), (0, 14, 76, 90), (12, 10, 0xFF, 0),
-                (0, 18, 36, 127), (4, 18, 38, 120), (8, 18, 36, 127), (12, 18, 38, 120)],
-            1: [(0, 0, 65, 100), (4, 0, 69, 100), (0, 1, 41, 110), (8, 1, 41, 90),
-                (0, 18, 36, 127), (8, 18, 36, 127)]}
-    h = bytearray(1408)
+    def fm(alg, fb, tl_mod):
+        b = bytearray(30)
+        for slot in range(4):
+            carrier = slot >= 2 if alg == 4 else slot == 3
+            b[0 * 4 + slot] = 0x01                      # DT/MUL
+            b[1 * 4 + slot] = 0x00 if carrier else tl_mod
+            b[2 * 4 + slot] = 0x1F                      # AR
+            b[3 * 4 + slot] = 0x05                      # D1R
+            b[4 * 4 + slot] = 0x02                      # D2R
+            b[5 * 4 + slot] = 0x26                      # SL/RR
+        b[28] = fb << 3 | alg
+        b[29] = 0xC0
+        return bytes(b)
+    kinds = [0, 0, 0, 0, 1, 2, 3, 3, 3, 3, 4, 0, 0, 1, 5, 5]
+    chans = [0, 1, 2, 3, 4, 5, 10, 11, 12, 13, 9, 6, 7, 8, 14, 15]
+    names = {0: "Organ", 1: "Bass", 6: "E.Piano", 10: "Kit"}
+    sounds = {0: fm(4, 5, 0x22), 1: fm(7, 6, 0x18), 6: fm(4, 3, 0x28)}
+    notes = []                                          # (tick, track, note, vel, dur)
+    for bar, chord in enumerate([(60, 64, 67), (65, 69, 72), (67, 71, 74), (60, 64, 67)]):
+        t = bar * 384
+        notes += [(t, 0, n, 90, 360) for n in chord]
+        notes += [(t, 1, chord[0] - 24, 110, 180), (t + 192, 1, chord[0] - 17, 100, 180)]
+        notes += [(t + 96 * k, 10, 36 if k % 2 == 0 else 38, 120, 24) for k in range(4)]
+        notes += [(t + 48, 6, chord[2] + 12, 80, 40)]
+    notes.sort(key=lambda e: e[0])
+    h = bytearray(40)
     h[0:4] = b"MSNG"
-    h[4], h[5], h[6:8] = 1, 4, (140).to_bytes(2, "big")
-    h[8], h[9], h[10] = 3, 0, 64
-    h[12:16] = b"demo"
-    h[36:36 + len(lanes)] = bytes(lanes)
-    h[60:63] = bytes([0, 1, 0])
-    for p in range(64):
-        h[188 + p] = 16
-        h[252 + p * 2:254 + p * 2] = len(pats.get(p, [])).to_bytes(2, "big")
-    paths = [""] * 16
-    paths[0], paths[1], paths[10] = "Brass Section.tfi", "Bass/Slap Bass.tfi", "E.Piano.tfi"
-    packed = b"".join(x.encode() + b"\0" for x in paths)
-    h[384:384 + len(packed)] = packed
-    ev = b"".join(bytes(e) for p in sorted(pats) for e in pats[p])
-    return bytes(h) + ev
+    h[4], h[5] = 2, 0x02 | 0x08                         # version, click while recording, count-in
+    h[6:8] = (126).to_bytes(2, "big")
+    h[8], h[9] = 4, 0
+    h[10:12], h[12:14] = (0).to_bytes(2, "big"), (4).to_bytes(2, "big")
+    h[14:18] = b"demo"
+    tracks = bytearray()
+    for t in range(16):
+        tr = bytearray(24)
+        tr[0], tr[1] = kinds[t], chans[t]
+        nm = names.get(t, "").encode()
+        tr[4:4 + len(nm)] = nm
+        tracks += tr
+    snd = b"".join(bytes([len(sounds.get(t, b""))]) + sounds.get(t, b"") for t in range(16))
+    h[30:32] = len(notes).to_bytes(2, "big")
+    h[32:34] = len(snd).to_bytes(2, "big")
+    ev = b"".join(((tick << 4 | tr).to_bytes(3, "big") + bytes([0, n, v]) + d.to_bytes(2, "big"))
+                  for tick, tr, n, v, d in notes)
+    return bytes(h) + bytes(tracks) + snd + ev
 
 
 (out / "MIDI_SONGS").mkdir(exist_ok=True)

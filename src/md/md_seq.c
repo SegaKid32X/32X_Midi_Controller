@@ -1154,6 +1154,13 @@ unsigned seq_command(uint16_t p1, uint16_t p2, uint16_t p3)
         return (unsigned)song_load();
     case SQ_EXPORT:
         return (unsigned)song_export();
+    case SQ_KEY: {
+        uint8_t was = seq_flags & SQS_LIVE;
+        seq_flags |= SQS_LIVE;
+        seq_live((uint8_t)(p2 >> 8), (uint8_t)p2, (uint8_t)p3);
+        seq_flags = (uint8_t)((seq_flags & ~SQS_LIVE) | was);
+        return 0;
+    }
     case SQ_FREE: {
         unsigned used = used_bytes();
         COMM16(C_P1) = (uint16_t)((SONG_BYTES - used) / EV_BYTES);
